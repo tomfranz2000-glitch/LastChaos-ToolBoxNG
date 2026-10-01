@@ -217,35 +217,51 @@ namespace LastChaos_ToolBoxNG
 			pParser.WriteFile(pMain.pSettings.SettingsFile, pData);
 		}
 		/****************************************/
-		private void WriteLengthNText(BinaryWriter Stream, string strText, int nTextLength, Type? Type)
-		{
-			if (nTextLength != 0)
-			{
-				byte[] strBytes = new byte[nTextLength], strStringBytes = Encoding.Default.GetBytes(strText);
+		// .NET's default encoding was already UTF-8. Make it explicit and reject malformed UTF-16 input.
+		private static readonly Encoding TextEncoding = new UTF8Encoding(false, true);
 
-				Array.Copy(strStringBytes, strBytes, Math.Min(strStringBytes.Length, strBytes.Length));
+		private static void WriteLengthNText(BinaryWriter Stream, string strText, int nTextLength, Type? Type)
+		{
+			ArgumentOutOfRangeException.ThrowIfNegative(nTextLength);
+			byte[] strStringBytes = TextEncoding.GetBytes(strText);
+			if (nTextLength > 0)
+			{
+				byte[] strBytes = new byte[nTextLength];
+				int copyLength = Math.Min(strStringBytes.Length, nTextLength);
+				// Preserve the fixed byte width, but never leave half of a multibyte character before the padding.
+				if (copyLength < strStringBytes.Length)
+					while (copyLength > 0 && (strStringBytes[copyLength] & 0xC0) == 0x80)
+						copyLength--;
+				Array.Copy(strStringBytes, strBytes, copyLength);
 
 				Stream.Write(strBytes, 0, nTextLength);	// Write Text
 			}
+			else if (Type == typeof(int))
+			{
+				Stream.Write(strStringBytes.Length);
+				Stream.Write(strStringBytes);
+			}
+			else if (Type == typeof(short))
+			{
+				if (strStringBytes.Length > short.MaxValue)
+					throw new InvalidDataException($"Text exceeds the {short.MaxValue}-byte limit of a short-length LOD field.");
+				Stream.Write((short)strStringBytes.Length);
+				Stream.Write(strStringBytes);
+			}
 			else
 			{
-				byte[] strBytes = Encoding.Default.GetBytes(strText);
-
-				if (Type != null && Type == typeof(int))
-				{
-					nTextLength = strText.Length;
-
-					Stream.Write(nTextLength);	// Write Text Length
-					Stream.Write(strBytes, 0, nTextLength);	// Write Text
-				}
-				else if (Type != null && Type == typeof(short))
-				{
-					short sTextLength = (short)strText.Length;
-
-					Stream.Write(sTextLength);  // Write Text Length
-					Stream.Write(strBytes, 0, sTextLength); // Write Text
-				}
+				throw new ArgumentException("A variable-length LOD field requires an Int32 or Int16 byte-length prefix.", nameof(Type));
 			}
+		}
+
+		private static void ValidateStringTableExport(DataTable table, IEnumerable<string> textColumns, string indexColumn)
+		{
+			// The client's TableLoader stores each string in an 8196-byte buffer, including its terminator.
+			const int maxTextBytes = 8195;
+			foreach (DataRow row in table.Rows)
+				foreach (string column in textColumns)
+					if (TextEncoding.GetByteCount(row[column].ToString() ?? string.Empty) > maxTextBytes)
+						throw new InvalidDataException($"String row {row[indexColumn]}, column {column} exceeds the client's {maxTextBytes}-byte text limit. Shorten it before exporting.");
 		}
 		/****************************************/
 #if USE_ORIGINAL_SKILL_CALCULATESUM_AND_END_TAG
@@ -413,17 +429,27 @@ namespace LastChaos_ToolBoxNG
 
 			btnExport.Enabled = false;
 
-			await Task.WhenAll(ExportTasks);
+			try
+			{
+				await Task.WhenAll(ExportTasks);
 #if DEBUG
-			long lFiltered = lTotalElapsedTime / 1000;
+				long lFiltered = lTotalElapsedTime / 1000;
 			
-			pMain.Logger(LogTypes.Success, $"Export all Files Took: {(lFiltered / 60)}:{(lFiltered % 60)}.{lTotalElapsedTime}ms.");
+				pMain.Logger(LogTypes.Success, $"Export all Files Took: {(lFiltered / 60)}:{(lFiltered % 60)}.{lTotalElapsedTime}ms.");
 #else
-			pMain.Logger(LogTypes.Success, "All Files has been Exported.");
+				pMain.Logger(LogTypes.Success, "All Files has been Exported.");
 #endif
-			btnExport.Enabled = true;
-
-			pProgressDialog.Close();
+			}
+			catch (Exception ex)
+			{
+				pMain.Logger(LogTypes.Error, $"Export failed: {ex.Message}");
+				MessageBox.Show(this, $"One or more files could not be exported.\n\n{ex.Message}", "Export failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			}
+			finally
+			{
+				btnExport.Enabled = true;
+				pProgressDialog.Close();
+			}
 		}
 		
 		// String Export
@@ -461,9 +487,11 @@ namespace LastChaos_ToolBoxNG
 					i++;
 				}
 
-				DataTable? pTable = pMain.QuerySelect(pNationCharsetNPostfix.Charset, $"{StringTypeData.Clause} {string.Join(", ", listColumns)} FROM {pMain.pSettings.DBData}.{StringTypeData.TableName} {StringTypeData.Condition} ORDER BY {StringTypeData.Columns[0]}");
+				using DataTable? pTable = pMain.QuerySelect(pNationCharsetNPostfix.Charset, $"{StringTypeData.Clause} {string.Join(", ", listColumns)} FROM {pMain.pSettings.DBData}.{StringTypeData.TableName} {StringTypeData.Condition} ORDER BY {StringTypeData.Columns[0]}");
 				if (pTable != null)
 				{
+					// Validate the whole table before File.Create can replace a previously working export.
+					ValidateStringTableExport(pTable, listColumns.Skip(1), StringTypeData.Columns[0]);
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
 						Stream.Write(pTable.Rows.Count);
@@ -477,8 +505,6 @@ namespace LastChaos_ToolBoxNG
 								WriteLengthNText(Stream, pRow[strColumnName].ToString() ?? string.Empty, 0, typeof(int));
 						}
 					}
-
-					pTable.Dispose();
 				}
 #if DEBUG
 				stopwatch.Stop();
@@ -1039,7 +1065,7 @@ namespace LastChaos_ToolBoxNG
 				if (rbExportToLocalFolder.Checked)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_npc_index, result_itemIndex, result_itemCount, source_itemIndex0, source_itemCount0, source_itemIndex1, source_itemCount1, source_itemIndex2, source_itemCount2, source_itemIndex3, source_itemCount3, source_itemIndex4, source_itemCount4 FROM {pMain.pSettings.DBData}.t_item_exchange WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_npc_index, a_result_itemIndex AS result_itemIndex, a_result_itemCount AS result_itemCount, source_itemIndex0, source_itemCount0, source_itemIndex1, source_itemCount1, source_itemIndex2, source_itemCount2, source_itemIndex3, source_itemCount3, source_itemIndex4, source_itemCount4 FROM {pMain.pSettings.DBData}.t_item_exchange WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))

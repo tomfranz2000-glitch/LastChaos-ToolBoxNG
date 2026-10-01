@@ -186,16 +186,11 @@ namespace LastChaos_ToolBoxNG
 		private bool EnsureWhitelistTable()
 		{
 			string db = pMain.pSettings.DBData;
-			string query =
-				$"CREATE TABLE IF NOT EXISTS {db}.{TableName} (" +
-				"a_skill_index INT(11) NOT NULL, " +
-				"a_enable TINYINT(1) NOT NULL DEFAULT 1, " +
-				"a_apply_rate INT(11) NOT NULL DEFAULT 100, " +
-				"a_note VARCHAR(255) NOT NULL DEFAULT '', " +
-				"PRIMARY KEY (a_skill_index)" +
-				") ENGINE=InnoDB DEFAULT CHARSET=latin1;";
-
-			return pMain.QueryUpdateInsertDelete(pMain.pSettings.DBCharset, query, out long _, false);
+			// This is part of the game's canonical schema. Schema installation is
+			// versioned through migrations, never mixed into an editor save.
+			string query = $"SELECT a_skill_index, a_enable, a_apply_rate, a_note FROM {db}.{TableName} LIMIT 0;";
+			using DataTable? schema = pMain.QuerySelect(pMain.pSettings.DBCharset, query, false);
+			return schema != null;
 		}
 
 		private DataTable? LoadAvailableSkills()

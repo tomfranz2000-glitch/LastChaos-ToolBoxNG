@@ -777,11 +777,7 @@ namespace LastChaos_ToolBoxNG
 			cbSkillMaster.EndUpdate();
 			/****************************************/
 			cbSpecialSkillMaster.BeginUpdate();
-			cbSpecialSkillMaster.Items.Add("No");
-
-			foreach (string strType in Defs.SpecialSkillTypes)
-				cbSpecialSkillMaster.Items.Add(strType);
-
+			cbSpecialSkillMaster.Items.AddRange(Defs.SpecialSkillTypes);
 			cbSpecialSkillMaster.EndUpdate();
 			/****************************************/
 			cbAttackTypeSelector.BeginUpdate();
@@ -1216,11 +1212,14 @@ namespace LastChaos_ToolBoxNG
 				cbSkillMaster.SelectedIndex = nSkillMasterType == -1 ? 0 : nSkillMasterType;
 			/****************************************/
 			int nSSkillMasterType = Convert.ToInt32(pTempNPCRow["a_sskill_master"]);
-
-			if (nSSkillMasterType < -1 || nSSkillMasterType >= Defs.SpecialSkillTypes.Count() + 1 /*Cuz a_skillmaster min is -1*/)
-				pMain.Logger(LogTypes.Error, $"NPC Editor > NPC: {nNPCID} Error: a_sskill_master out of range.");
-			else
-				cbSpecialSkillMaster.SelectedIndex = nSSkillMasterType == -1 ? 0 : nSSkillMasterType;
+			Defs.SpecialSkillTypeChoice specialSkill = Defs.GetSpecialSkillTypeChoice(nSSkillMasterType);
+			cbSpecialSkillMaster.BeginUpdate();
+			cbSpecialSkillMaster.Items.Clear();
+			cbSpecialSkillMaster.Items.AddRange(Defs.SpecialSkillTypes);
+			if (!cbSpecialSkillMaster.Items.Contains(specialSkill))
+				cbSpecialSkillMaster.Items.Add(specialSkill);
+			cbSpecialSkillMaster.SelectedItem = specialSkill;
+			cbSpecialSkillMaster.EndUpdate();
 			/****************************************/
 #if REWARDS_BY_DAMAGE
 			tbWorldBossGoldMin.Text = pTempNPCRow["a_reward_gold_min"].ToString();
@@ -2524,15 +2523,10 @@ namespace LastChaos_ToolBoxNG
 
 		private void cbSpecialSkillMaster_SelectedIndexChanged(object sender, EventArgs e)
 		{
-			if (bUserAction)
+			if (bUserAction && cbSpecialSkillMaster.SelectedItem is Defs.SpecialSkillTypeChoice choice)
 			{
-				int nType = cbSpecialSkillMaster.SelectedIndex;
-				if (nType != -1)
-				{
-					pTempNPCRow["a_sskill_master"] = nType == 0 ? -1 : nType;
-
-					bUnsavedChanges = true;
-				}
+				pTempNPCRow["a_sskill_master"] = choice.Id;
+				bUnsavedChanges = true;
 			}
 		}
 

@@ -221,7 +221,8 @@ namespace LastChaos_ToolBoxNG
 				{ "Good/Evil Reward Editor",	() => new GoodEvilEditor(this) },
 				{ "Option Editor",				() => new OptionEditor(this) },
 				{ "Rare Option Editor",			() => new RareOptionEditor(this) },
-				{ "Crafting Editor",			() => new CraftingEditor(this) },
+				{ "Crafting & Mastery Editor", () => new CraftingMasteryEditor(this) },
+				{ "Crafting Editor — Legacy",			() => new CraftingEditor(this) },
 				{ "NPC Editor",					() => new NPCEditor(this) },
 				{ "Shop Editor",				() => new ShopEditor(this) },
 				{ "Affinity Editor",			() => new AffinityEditor(this) },
@@ -745,11 +746,9 @@ namespace LastChaos_ToolBoxNG
 				/****************************************/
 				pTables.Dispose();
 				/****************************************/
-				string strConnect = $"SERVER={pSettings.DBHost};DATABASE={pSettings.DBData};UID={pSettings.DBUsername};PASSWORD={pSettings.DBPassword};CHARSET={pSettings.DBCharset}";
+				pMySQLConnection = CreateDatabaseConnection(pSettings.DBCharset);
 
-				pMySQLConnection = new MySqlConnection(strConnect);
-
-				Logger(LogTypes.Message, $"MySQL > Trying to connect to ({strConnect})...");
+				Logger(LogTypes.Message, $"MySQL > Connecting to {pSettings.DBHost}/{pSettings.DBData} as {pSettings.DBUsername}...");
 
 				pMySQLConnection.Open();
 
@@ -757,24 +756,7 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				strWindowsTitle = "Status: DB Connected: " + pSettings.DBData;
 #endif
-				DataTable? dtResults = QuerySelect(pSettings.DBCharset, "SELECT @@sql_mode;");
-				if (dtResults != null && dtResults.Rows.Count > 0)
-				{
-					string strSQLMode = dtResults.Rows[0][0].ToString() ?? string.Empty;
-					string[] strSQLModes = strSQLMode.Split(',');
-
-					if (Array.Exists(strSQLModes, mode => mode.Trim() == "STRICT_TRANS_TABLES"))
-					{
-						DialogResult pDialogReturn = MessageBox.Show("Your Database have STRICT_TRANS_TABLES Enable. In order to use this ToolBox it should be disabled.\nDo you want disable it now? (The actual Database user need all privileges)", "LastChaos ToolBoxNG", MessageBoxButtons.YesNo, MessageBoxIcon.Exclamation);
-						if (pDialogReturn == DialogResult.Yes)
-						{
-							if (QueryUpdateInsertDelete(pSettings.DBCharset, "SET GLOBAL sql_mode = REPLACE(@@sql_mode, 'STRICT_TRANS_TABLES', '');", out long _))
-								MessageBox.Show("STRICT_TRANS_TABLES was disabled successfully.", "LastChaos ToolBoxNG", MessageBoxButtons.OK);
-							else
-								MessageBox.Show("Failed to disable STRICT_TRANS_TABLES.", "LastChaos ToolBoxNG", MessageBoxButtons.OK, MessageBoxIcon.Error);
-						}
-					}
-				}
+				Logger(LogTypes.Message, "MySQL > Saves use strict validation and transactional content tables; global SQL settings are preserved.");
 			}
 			catch (Exception ex)
 			{
@@ -1115,13 +1097,20 @@ namespace LastChaos_ToolBoxNG
 		}
 
 		// Database Functions
+		private MySqlConnection CreateDatabaseConnection(string charset) => new(new MySqlConnectionStringBuilder
+		{
+			Server = pSettings.DBHost,
+			Database = pSettings.DBData,
+			UserID = pSettings.DBUsername,
+			Password = pSettings.DBPassword,
+			CharacterSet = charset
+		}.ConnectionString);
+
 		public DataTable? QuerySelect(string strCharset, string strQuery, bool bLogSuccess = true)
 		{
 			try
 			{
-				string strConnect = $"SERVER={pSettings.DBHost};DATABASE={pSettings.DBData};UID={pSettings.DBUsername};PASSWORD={pSettings.DBPassword};CHARSET={strCharset}";
-
-				using (MySqlConnection MySQLConnection = new(strConnect))
+				using (MySqlConnection MySQLConnection = CreateDatabaseConnection(strCharset))
 				{
 					MySQLConnection.Open();
 
@@ -1154,23 +1143,14 @@ namespace LastChaos_ToolBoxNG
 
 			try
 			{
-				string strConnect = $"SERVER={pSettings.DBHost};DATABASE={pSettings.DBData};UID={pSettings.DBUsername};PASSWORD={pSettings.DBPassword};CHARSET={strCharset}";
-
-				using (MySqlConnection MySQLConnection = new(strConnect))
+				using (MySqlConnection MySQLConnection = CreateDatabaseConnection(strCharset))
 				{
 					MySQLConnection.Open();
 
-					using (MySqlCommand MySQLCommand = new(strQuery, MySQLConnection))
-					{
-						MySQLCommand.ExecuteNonQuery();
-
-						lLastInsertID = MySQLCommand.LastInsertedId;
-
-						if (bLogSuccess)
-							Logger(LogTypes.Success, $"MySQL > Query (Charset: {strCharset})\r{strQuery.Replace(";", ";\r")}Execute successfully.");
-
-						return true;
-					}
+					lLastInsertID = DatabaseWriteBatch.Execute(MySQLConnection, strQuery);
+					if (bLogSuccess)
+						Logger(LogTypes.Success, $"MySQL > Query (Charset: {strCharset})\r{strQuery.Replace(";", ";\r")}Committed successfully.");
+					return true;
 				}
 			}
 			catch (Exception ex)

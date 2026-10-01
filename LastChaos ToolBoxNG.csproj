@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <Compile Remove="_redist\**" />
+    <Compile Remove="tests\**" />
     <EmbeddedResource Remove="_redist\**" />
     <None Remove="_redist\**" />
   </ItemGroup>

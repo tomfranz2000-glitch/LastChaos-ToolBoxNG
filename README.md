@@ -1,6 +1,10 @@
 # LastChaos ToolBox <img align="left" src="https://user-images.githubusercontent.com/5092697/138568453-9cbbedb8-7889-4a9d-ac72-5d2dae9bae9f.png" width="100px">
 It provides the basics for creating tools to manage Databases and perhaps files related to LastChaos.
 
+For this game's schema requirements, transactional saves, and the workflow to
+capture editor changes in Git, see [database compatibility and version control](database/README.md).
+The unfinished Quest Editor is unavailable; its copied write handlers targeted rare options.
+
 # Concept of Global Tables
 * The idea behind the project is to have a fast and efficient tool in terms of requests to the DataBase Server. With that in mind I designed a scheme in which there are __Global Tables__, these are populated for the first time by the Tool that requires the information, and later said information can be used by another tool, Avoiding constants requests each time some Tool open.
 
