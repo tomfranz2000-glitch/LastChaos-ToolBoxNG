@@ -54,12 +54,13 @@ public sealed record CraftingItem(int Id, string Name, bool Enabled, int Type, i
 }
 public sealed class CraftingCatalog
 {
+    public int SkillCap { get; set; } = 50;
     public List<Recipe> Recipes { get; set; } = [];
     public List<MastersRank> Ranks { get; set; } = [];
     [JsonIgnore] public Dictionary<int, CraftingItem> Items { get; set; } = [];
     public static T Copy<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value))!;
     public string Fingerprint() => JsonSerializer.Serialize(new {
-        Recipes = Recipes.OrderBy(r => r.Id), Ranks = Ranks.OrderBy(r => r.Id)
+        SkillCap, Recipes = Recipes.OrderBy(r => r.Id), Ranks = Ranks.OrderBy(r => r.Id)
     });
     public string ItemName(int id) => Items.TryGetValue(id, out var item) ? item.Name : $"Missing item #{id}";
     public void UpdateNames() { foreach (var r in Recipes) r.Name = ItemName(r.OutputItem); }
@@ -81,7 +82,7 @@ public sealed record CraftingIssue(bool Error, string Target, string Message)
 // and effect meanings are engine rules; all authored rewards remain database data.
 public static class CraftingRules
 {
-    public const int SkillCap = 50, MaxRecipes = 4096, MaxRanks = 64;
+    public const int MaxSkillLevel = 65535, MaxRecipes = 4096, MaxRanks = 64;
     public static readonly Dictionary<int, string> Effects = new[] {
         "Strength", "Dexterity", "Intelligence", "Constitution", "Maximum HP", "Maximum MP",
         "Physical Attack", "Melee Attack", "Ranged Attack", "Melee Accuracy", "Ranged Accuracy",
@@ -96,15 +97,15 @@ public static class CraftingRules
         17 => [11], 18 => [14], 19 => [17], 20 => [6, 7, 8], 21 => [9, 10, 11],
         22 => [12, 13, 14], 23 => [15, 16, 17], 102 => [18], 103 => [19], _ => []
     };
-    public static int Chance(Recipe r, int skill) => skill < r.RequiredSkill || skill >= SkillCap || skill >= r.NoSkillUp ? 0 :
+    public static int Chance(Recipe r, int skill, int skillCap) => skill < r.RequiredSkill || skill >= skillCap || skill >= r.NoSkillUp ? 0 :
         skill >= r.RequiredSkill + (2L * (r.NoSkillUp - r.RequiredSkill) + 2) / 3 ? 20 :
         skill >= r.RequiredSkill + ((long)r.NoSkillUp - r.RequiredSkill + 2) / 3 ? 60 : 100;
-    public static string Training(Recipe r)
+    public static string Training(Recipe r, int skillCap)
     {
         List<string> bands = [];
-        for (int start = 1; start <= SkillCap;) {
-            int end = start, chance = Chance(r, start);
-            while (end < SkillCap && Chance(r, end + 1) == chance) end++;
+        for (int start = 1; start <= skillCap;) {
+            int end = start, chance = Chance(r, start, skillCap);
+            while (end < skillCap && Chance(r, end + 1, skillCap) == chance) end++;
             bands.Add($"{chance}% at {start}–{end}"); start = end + 1;
         }
         return string.Join("  |  ", bands);
@@ -137,12 +138,14 @@ public static class CraftingRules
             if (id == 19) Error(t, "Gold cannot be used as a crafting ingredient or output.");
             if (output && (i.Rebirth || (i.Stackable ? quantity > i.StackLimit : quantity != 1))) Error(t, $"Output {id} has an unsupported type or quantity/stack limit.");
         }
+        if (c.SkillCap is < 1 or > MaxSkillLevel) Error("Settings", "Maximum crafting skill must be 1–65535.");
         if (c.Recipes.Count > MaxRecipes || c.Recipes.Select(r => r.Id).Distinct().Count() != c.Recipes.Count) Error("Catalogue", "Recipe limit exceeded or duplicate IDs.");
         foreach (var r in c.Recipes) {
             string t = $"Recipe {r.Id}";
             if (r.Id <= 0 || !Enum.IsDefined(r.Profession) || r.OutputItem <= 0 || r.OutputQuantity <= 0 || r.SortOrder < 0) Error(t, "Invalid identity, profession, output or display order.");
             if (r.CraftTimeMs is < 1 or > 600000) Error(t, "Craft duration must be 0.001–600 seconds.");
-            if (r.RequiredSkill is < 1 or > SkillCap || r.NoSkillUp <= r.RequiredSkill || r.NoSkillUp > 1000000) Error(t, "Minimum skill must be 1–50; no-gain skill must be greater (maximum 1000000).");
+            if (r.RequiredSkill is < 1 or > MaxSkillLevel || r.NoSkillUp <= r.RequiredSkill || r.NoSkillUp > 1000000) Error(t, "Minimum skill must be 1–65535; no-gain skill must be greater (maximum 1000000).");
+            if (r.Enabled && r.RequiredSkill > c.SkillCap) Note(t, $"Requires skill {r.RequiredSkill}, above the configured cap {c.SkillCap}. New characters cannot reach this requirement yet.");
             if (r.Ingredients.Count > 10 || (r.Enabled && r.Ingredients.Count == 0) || r.Ingredients.Any(i => i.ItemId <= 0 || i.Quantity <= 0 || i.ItemId == r.OutputItem) || r.Ingredients.Select(i => i.ItemId).Distinct().Count() != r.Ingredients.Count) Error(t, "Use 1–10 different ingredients with positive quantities; output cannot also be an ingredient.");
             if (r.Manuals.Count > 8 || r.Manuals.Any(i => i.ItemId <= 0) || r.Manuals.Select(i => i.ItemId).Distinct().Count() != r.Manuals.Count || (!r.RequiresUnlock && r.Manuals.Count != 0) || (r.Enabled && r.RequiresUnlock && r.Manuals.Count == 0)) Error(t, "A learned recipe needs 1–8 distinct teaching items; automatic recipes have none.");
             if (r.MasteryXp < 0 || r.MasteryRequired < 0 || (r.MasteryRequired == 0 && (r.MasteryXp != 0 || r.Bonuses.Count != 0))) Error(t, "Disabled mastery must have zero XP and no bonuses.");

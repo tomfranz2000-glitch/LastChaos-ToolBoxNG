@@ -15,8 +15,8 @@ public static class CraftingItemReferences
         using var cmd = new MySqlCommand("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", CraftingRepository.Tables.Select(t => "'" + t + "'")) + ")", db);
         int count = Convert.ToInt32(cmd.ExecuteScalar());
-        if (count is not 0 and not 8) throw new InvalidOperationException("Incomplete crafting schema. Apply all crafting migrations before changing item references.");
-        return count == 8;
+        if (count != 0 && count != CraftingRepository.Tables.Length) throw new InvalidOperationException("Incomplete crafting schema. Apply all crafting migrations before changing item references.");
+        return count == CraftingRepository.Tables.Length;
     }
     public static List<string> Read(string connectionString, int item, string locale = "usa")
     {

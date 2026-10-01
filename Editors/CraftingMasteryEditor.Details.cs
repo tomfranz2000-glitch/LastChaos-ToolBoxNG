@@ -48,7 +48,7 @@ public sealed partial class CraftingMasteryEditor
         learning.Controls.Add(Label("One manual may teach many recipes; each recipe supports up to eight manuals.\r\nAutomatic recipes must have an empty teaching list. A successful first use consumes one manual."));
         page.Controls.Add(Vertical(learning,ItemGrid(r.Manuals,()=>new TeachingItem(),8))); learning.Dock=DockStyle.Top; learning.AutoSize=true; detailTabs.TabPages.Add(page);
         page=new("Skill & Mastery"); fields=Fields(); fields.Dock=DockStyle.Top; fields.AutoSize=true;
-        Number(fields,"Minimum skill to craft",1,50,r.RequiredSkill,v=>r.RequiredSkill=(int)v);
+        Number(fields,"Minimum skill to craft",1,CraftingRules.MaxSkillLevel,r.RequiredSkill,v=>r.RequiredSkill=(int)v);
         Number(fields,"No skill gains at",2,1000000,r.NoSkillUp,v=>r.NoSkillUp=(int)v);
         Number(fields,"Mastery XP per craft",0,int.MaxValue,r.MasteryXp,v=>r.MasteryXp=(int)v);
         Number(fields,"Mastery XP required (0 = disabled)",0,int.MaxValue,r.MasteryRequired,v=>r.MasteryRequired=(int)v);
@@ -60,7 +60,7 @@ public sealed partial class CraftingMasteryEditor
     private void UpdateRecipeSummary()
     {
         if(selectedRecipe is not Recipe r || recipeSummary.IsDisposed) return;
-        recipeSummary.Text="Skill bands (cap 50): "+CraftingRules.Training(r)+"\r\n"+CraftingRules.MasteryEstimate(r)+
+        recipeSummary.Text=$"Skill bands (cap {catalog.SkillCap}): "+CraftingRules.Training(r,catalog.SkillCap)+"\r\n"+CraftingRules.MasteryEstimate(r)+
             "\r\nMastery rewards are permanent character bonuses. Zero required XP needs zero XP/craft and an empty bonus list.";
     }
     private Control ItemGrid<T>(List<T> values,Func<T> create,int limit) where T:class
@@ -207,7 +207,7 @@ public sealed partial class CraftingMasteryEditor
         foreach(var p in Enum.GetValues<Profession>()) {
             var rows=catalog.Recipes.Where(r=>r.Enabled && r.Profession==p).ToList();
             text.AppendLine($"{p}: {rows.Count} enabled recipes; {rows.Count(r=>r.MasteryRequired>0)} mastery recipes");
-            var gaps=Enumerable.Range(1,49).Where(s=>!rows.Any(r=>CraftingRules.Chance(r,s)>0));
+            var gaps=Enumerable.Range(1,catalog.SkillCap-1).Where(s=>!rows.Any(r=>CraftingRules.Chance(r,s,catalog.SkillCap)>0));
             text.AppendLine("  Skill levels without a training recipe: "+string.Join(", ",gaps));
         }
         text.AppendLine("\r\nAll obtainable recipe + rank bonuses (including retained retired rewards):");

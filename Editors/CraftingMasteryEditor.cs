@@ -25,6 +25,7 @@ public sealed partial class CraftingMasteryEditor : Form
     private MastersRank? selectedRank;
     private Label? rankSummary;
     private readonly int initialItem;
+    private readonly NumericUpDown maximumSkill = new() { Name="MaximumCraftingSkill", Minimum=1, Maximum=CraftingRules.MaxSkillLevel, Width=145, ThousandsSeparator=true };
 
     public CraftingMasteryEditor(Main host, int teachingItem = 0)
     {
@@ -92,6 +93,14 @@ public sealed partial class CraftingMasteryEditor : Form
         Column(ranks,"Order","Order",40); Column(ranks,"Name","Rank",140); Column(ranks,"RequiredMastered","Mastered",65);
         rankSplit.Panel1.Controls.Add(Vertical(rankTools,ranks)); rankSplit.Panel2.Controls.Add(rankDetail);
         ranks.SelectionChanged+=(_,_)=> { if(binding || !CommitGrids()) return; selectedRank=ranks.CurrentRow?.DataBoundItem as MastersRank; ShowRank(); };
+
+        page=new("Settings"); tabs.TabPages.Add(page);
+        var settings=Fields(); page.Controls.Add(settings);
+        settings.Controls.Add(Label("Crafting skill progression"));
+        var capRow=Flow(); capRow.Dock=DockStyle.None;
+        capRow.Controls.AddRange([Label("Maximum crafting skill"),maximumSkill]); settings.Controls.Add(capRow);
+        settings.Controls.Add(Label("Shared by Smithing, Alchemy and Cooking. Save, then close and reopen /craft to refresh.\r\nLowering this cap preserves earned levels and stat points; characters at or above it stop gaining skill.\r\nRecipe skill requirements and no-gain levels remain independent. Raising the cap does not extend a recipe's training range."));
+        maximumSkill.ValueChanged+=(_,_)=> { if(binding || !loaded) return; catalog.SkillCap=(int)maximumSkill.Value; Changed(); };
     }
     private void Changed()
     {
@@ -115,6 +124,7 @@ public sealed partial class CraftingMasteryEditor : Form
             var result=await Task.Run(repository.Load);
             foreach(var image in icons.Values) image?.Dispose(); icons.Clear();
             catalog=result; original=CraftingCatalog.Copy(result); loaded=true; dirty=false; Text="Crafting & Mastery Editor";
+            binding=true; maximumSkill.Value=catalog.SkillCap; binding=false;
             FilterRecipes(); RefreshRanks(); RefreshTeachingItems();
             status.Text=$"Loaded {catalog.Recipes.Count} recipes and {catalog.Ranks.Count} ranks. Crafting changes need only close/reopen /craft; new items and artwork need their normal deployment.";
         });
