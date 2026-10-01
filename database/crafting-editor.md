@@ -2,7 +2,7 @@
 
 Open **Crafting & Mastery Editor** from the toolbox editor list. **Crafting Editor — Legacy** continues to edit `t_factory_item`; it does not control the new system.
 
-The new editor uses the toolbox's configured content database and item locale. It requires the game's crafting migrations through **0017**. It does not apply migrations, create crafting tables, or change player progression.
+The new editor uses the toolbox's configured content database and item locale. It requires the game's crafting migrations through **0018**. It does not apply migrations, create crafting tables, or change player progression.
 
 ## Deploying toolbox updates
 
@@ -42,27 +42,46 @@ The emblem picker lists `.tex` files in the configured client's `Data/Interface`
 
 Changing a bonus changes the bonus for characters who already earned that mastery/rank. Raising an XP/rank threshold does not revoke an earned achievement. Retiring prevents new unlocks and preserves earned bonuses. Historical mastered recipes still count toward rank progression.
 
+## Maximum crafting skill
+
+Open **Settings → Maximum crafting skill** to set the shared cap for Smithing,
+Alchemy and Cooking (default 50; supported range 1–65,535). **Save all changes**
+commits it with the recipe draft, and closing/reopening `/craft` refreshes it in
+the game without a rebuild or restart. Changing this setting participates in
+concurrent-edit detection and **Export crafting seeds**.
+
+Lowering the cap preserves characters' earned skills and stat points, even above
+the new limit. It stops further skill gains until their level is below the cap
+again; it does not prevent mastery or otherwise valid crafting. Recipe requirements
+and no-gain levels stay independent. Raise those endpoints for new training content
+when needed; raising the global cap alone does not change a recipe's chances.
+**Validate / Overview** warns about recipes requiring a level above the current cap.
+
+Migration 0018 and the matching client/GameServer update must be deployed once
+before this editor version is used. Subsequent cap edits are purely database driven.
+
 ## Save, reload and version control
 
-Saves affect these eight **authored content** tables only:
+Saves affect these nine **authored content** tables only:
 
+- `t_crafting_settings`
 - `t_crafting_recipe`, `t_crafting_ingredient`, `t_crafting_manual`, `t_crafting_bonus_output`
 - `t_crafting_mastery`, `t_crafting_mastery_bonus`
 - `t_crafting_master_rank`, `t_crafting_master_rank_bonus`
 
-The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All eight tables must be InnoDB; unreviewed custom triggers are refused.
+The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All nine tables must be InnoDB; unreviewed custom triggers are refused.
 
 For edits that use already deployed item definitions and artwork, close and reopen `/craft` to refresh in game. No rebuild or server restart is needed for crafting catalogue changes. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
 
-After Save, **Export crafting seeds** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these eight tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
+After Save, **Export crafting seeds** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these nine tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
 
 Review and commit the resulting `x64-server/db/seeds/ep4_data` diff. Export new or changed `t_item` content separately, and promote exported client data into the game's authored asset tree. This button never exports player XP, learned recipes, earned ranks, inventory or character stat points.
 
 ## Existing engine limits
 
-The editor exposes authored data, not a new rules engine. Existing limits remain: 4,096 recipes, 64 ranks (both including retired entries), skill cap 50, ten materials, eight teaching manuals, eight random outputs, eight distinct bonus effects per definition, and craft durations of 0.001–600 seconds. Supported bonuses are the game's flat effects 0–23 and HP/MP regeneration 102/103. Individual amounts and the combined total in each underlying stat channel may not exceed 32,767; overlapping All/Physical effects and retired rewards are included.
+The editor exposes authored data, not a new rules engine. Existing limits remain: 4,096 recipes, 64 ranks (both including retired entries), maximum supported skill 65,535, ten materials, eight teaching manuals, eight random outputs, eight distinct bonus effects per definition, and craft durations of 0.001–600 seconds. Supported bonuses are the game's flat effects 0–23 and HP/MP regeneration 102/103. Individual amounts and the combined total in each underlying stat channel may not exceed 32,767; overlapping All/Physical effects and retired rewards are included.
 
-The global skill cap, 100/60/20 chances, and one stat point per crafting skill level are still engine rules. Changing those requires coordinated game code work.
+The 100/60/20 chances and one stat point per crafting skill level are still engine rules. Changing those requires coordinated game code work.
 
 ## Verification
 

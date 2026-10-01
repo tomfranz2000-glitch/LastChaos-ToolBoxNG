@@ -24,8 +24,8 @@ internal static class Program
             admin.Open(); using var cmd = new MySqlCommand("DROP DATABASE IF EXISTS ep4_data; DROP DATABASE IF EXISTS ep4_db; CREATE DATABASE ep4_data CHARACTER SET utf8mb4; CREATE DATABASE ep4_db CHARACTER SET utf8mb4;", admin); cmd.ExecuteNonQuery();
         }
         using var connection = new MySqlConnection(Connection); db = connection; db.Open();
-        Exec("CREATE TABLE ep4_db.t_characters(a_index INT PRIMARY KEY,a_crafting_stat_points INT NOT NULL,CONSTRAINT chk_crafting_stat_points CHECK(a_crafting_stat_points BETWEEN 0 AND 98)) ENGINE=InnoDB;");
-        foreach (string filename in Directory.GetFiles(Path.Combine(game, "x64-server/db/migrations"), "*.sql").Where(p => int.TryParse(Path.GetFileName(p)[..4], out int n) && n is >= 13 and <= 17).Order()) Exec(File.ReadAllText(filename));
+        Exec("CREATE TABLE ep4_db.t_characters(a_index INT PRIMARY KEY,a_crafting_smithing TINYINT UNSIGNED NOT NULL DEFAULT 1,a_crafting_alchemy TINYINT UNSIGNED NOT NULL DEFAULT 1,CONSTRAINT chk_crafting_smithing CHECK(a_crafting_smithing BETWEEN 1 AND 50),CONSTRAINT chk_crafting_alchemy CHECK(a_crafting_alchemy BETWEEN 1 AND 50),a_crafting_stat_points INT NOT NULL,CONSTRAINT chk_crafting_stat_points CHECK(a_crafting_stat_points BETWEEN 0 AND 98)) ENGINE=InnoDB;");
+        foreach (string filename in Directory.GetFiles(Path.Combine(game, "x64-server/db/migrations"), "*.sql").Where(p => int.TryParse(Path.GetFileName(p)[..4], out int n) && n is >= 13 and <= 18).Order()) Exec(File.ReadAllText(filename));
         Exec("USE ep4_data; CREATE TABLE t_item(a_index INT PRIMARY KEY,a_name_usa VARCHAR(100),a_enable INT,a_type_idx INT,a_subtype_idx INT,a_flag BIGINT,a_weight INT,a_texture_id INT,a_texture_row INT,a_texture_col INT) ENGINE=InnoDB;");
         foreach (string table in CraftingRepository.Tables) Exec(File.ReadAllText(Path.Combine(game, "x64-server/db/seeds/ep4_data", table + ".sql")));
         Exec("INSERT INTO t_item SELECT item,CONCAT('Fixture item ',item),1,4,0,1,2147483647,0,0,0 FROM (SELECT a_output_item item FROM t_crafting_recipe UNION SELECT a_item_index FROM t_crafting_ingredient UNION SELECT a_manual_item FROM t_crafting_manual UNION SELECT a_item_index FROM t_crafting_bonus_output) refs; UPDATE t_item SET a_type_idx=2,a_subtype_idx=1 WHERE a_index IN(SELECT a_manual_item FROM t_crafting_manual);");
@@ -37,10 +37,28 @@ internal static class Program
         Exec("INSERT INTO t_item VALUES (200001,'Healing meal',1,4,0,1,9999,0,0,0),(200002,'Herb',1,4,0,1,9999,0,0,0),(200003,'Recipe book',1,2,1,1,9999,0,0,0),(200004,'Bonus powder',1,4,0,1,9999,0,0,0),(200005,'Second recipe book',1,2,4,1,9999,0,0,0);");
         Exec("INSERT INTO ep4_db.t_crafting_mastery VALUES(7,1,20,1); INSERT INTO ep4_db.t_crafting_master_rank VALUES(7,1); INSERT INTO ep4_db.t_crafting_recipe_unlock VALUES(7,1);");
 
-        Run("all eight content tables round-trip including Cooking", () => {
+        Run("all nine content tables round-trip including Cooking", () => {
             Reset(); var empty = Repository.Load(); var c = Sample(); Repository.Save(empty, c);
             Check(Repository.Load().Fingerprint() == c.Fingerprint(), "Round-trip differs.");
             Check(Scalar("SELECT a_chance FROM t_crafting_bonus_output") == "1234", "Percentage precision lost.");
+        });
+        Run("configured skill cap saves, refreshes and detects concurrent changes", () => {
+            SeedSample(); var before=Repository.Load(); var edited=CraftingCatalog.Copy(before);
+            edited.SkillCap=300; Repository.Save(before,edited);
+            Reject(()=>Repository.Save(before,before),"changed in another editor");
+            before=Repository.Load(); edited=CraftingCatalog.Copy(before);
+            edited.Recipes[0].RequiredSkill=250; edited.Recipes[0].NoSkillUp=350;
+            Repository.Save(before,edited); var reloaded=Repository.Load();
+            Check(reloaded.SkillCap==300 && reloaded.Recipes[0].RequiredSkill==250,"Extended cap/recipe lost.");
+            Check(CraftingRules.Chance(reloaded.Recipes[0],299,reloaded.SkillCap)>0 && CraftingRules.Chance(reloaded.Recipes[0],300,reloaded.SkillCap)==0,"Configured chance limit ignored.");
+            Reject(()=>Repository.Save(before,before),"changed in another editor");
+            edited=CraftingCatalog.Copy(reloaded); edited.SkillCap=25; Repository.Save(reloaded,edited);
+            Check(Repository.Load().SkillCap==25 && Repository.Load().Recipes[0].RequiredSkill==250,"Lower cap erased higher recipes.");
+            Check(CraftingRules.Validate(edited).Any(i=>!i.Error && i.Message.Contains("above the configured cap")),"Unreachable recipe not explained.");
+            edited.SkillCap=0; Reject(()=>Repository.Save(Repository.Load(),edited),"Maximum crafting skill");
+            Check(Repository.Load().SkillCap==25,"Rejected cap changed the database.");
+            Exec("DELETE FROM t_crafting_settings"); Reject(()=>Repository.Load(),"settings are missing");
+            Exec("INSERT INTO t_crafting_settings VALUES(1,50)");
         });
         Run("exclusive output chance and item collisions are rejected", () => {
             var c = Sample(); c.Recipes[0].BonusOutputs.Add(new() { ItemId = 200005, ChancePercent = 99 });
@@ -49,10 +67,10 @@ internal static class Program
         });
         Run("derived bands use endpoints and handle short intervals/cap", () => {
             var r = Sample().Recipes[0]; r.RequiredSkill = 10; r.NoSkillUp = 40;
-            Check(new[] {9,10,19,20,29,30,39,40,50}.Select(s => CraftingRules.Chance(r,s)).SequenceEqual(new[] {0,100,100,60,60,20,20,0,0}), "Chance curve changed.");
-            Check(CraftingRules.Training(r).StartsWith("0% at 1–9") && CraftingRules.Training(r).EndsWith("0% at 40–50"), "Disconnected zero bands merged.");
-            r.NoSkillUp = 11; Check(CraftingRules.Chance(r,10) == 100 && CraftingRules.Chance(r,11) == 0, "One-level interval.");
-            r.RequiredSkill = 49; r.NoSkillUp = 1000000; Check(CraftingRules.Chance(r,49) == 100 && CraftingRules.Chance(r,50) == 0, "Cap.");
+            Check(new[] {9,10,19,20,29,30,39,40,50}.Select(s => CraftingRules.Chance(r,s, 50)).SequenceEqual(new[] {0,100,100,60,60,20,20,0,0}), "Chance curve changed.");
+            Check(CraftingRules.Training(r, 50).StartsWith("0% at 1–9") && CraftingRules.Training(r, 50).EndsWith("0% at 40–50"), "Disconnected zero bands merged.");
+            r.NoSkillUp = 11; Check(CraftingRules.Chance(r,10, 50) == 100 && CraftingRules.Chance(r,11, 50) == 0, "One-level interval.");
+            r.RequiredSkill = 49; r.NoSkillUp = 1000000; Check(CraftingRules.Chance(r,49, 50) == 100 && CraftingRules.Chance(r,50, 50) == 0, "Cap.");
         });
         Run("manual validity and many-to-many assignments", () => {
             Reset(); var c = Sample(); var copy = CraftingCatalog.Copy(c.Recipes[0]); copy.Id = 2; c.Recipes.Add(copy);
@@ -74,7 +92,7 @@ internal static class Program
             Reject(()=>Repository.Save(basis,second),"another editor"); Check(Repository.Load().Recipes[0].CraftTimeMs==5555,"Lost update.");
         });
         Run("late SQL failure rolls back parent and children", () => {
-            SeedSample(); var basis=Repository.Load(); var draft=CraftingCatalog.Copy(basis); draft.Recipes[0].CraftTimeMs=8888; draft.Recipes[0].Ingredients[0].Quantity=13;
+            SeedSample(); var basis=Repository.Load(); var draft=CraftingCatalog.Copy(basis); draft.SkillCap=300; draft.Recipes[0].CraftTimeMs=8888; draft.Recipes[0].Ingredients[0].Quantity=13;
             Exec("ALTER TABLE t_crafting_ingredient ADD CONSTRAINT fixture_failure CHECK(a_count<>13)");
             try { Reject(()=>Repository.Save(basis,draft),"fixture_failure"); Check(Repository.Load().Fingerprint()==basis.Fingerprint(),"Partial save remained."); }
             finally { Exec("ALTER TABLE t_crafting_ingredient DROP CONSTRAINT fixture_failure"); }
@@ -132,14 +150,14 @@ internal static class Program
                 using var bitmap=CraftingEmblem.Read(path); Check(bitmap.GetPixel(2,2)==Color.FromArgb(255,255,0,0),"Wrong DXT pixel for flags "+flags);
             }
         });
-        Run("canonical seed exporter writes only the eight content files", () => {
+        Run("canonical seed exporter writes only the nine content files", () => {
             SeedSample(); string checkout=Path.Combine(output,"export-checkout");
             Directory.CreateDirectory(Path.Combine(checkout,"x64-server/db/seeds/ep4_data")); Directory.CreateDirectory(Path.Combine(checkout,"x64-server/compose"));
             File.Copy(Path.Combine(game,"x64-server/db/export-seed.sh"),Path.Combine(checkout,"x64-server/db/export-seed.sh"),true);
             File.Copy(Path.Combine(Directory.GetCurrentDirectory(),"tests/CraftingVerification/compose.yml"),Path.Combine(checkout,"x64-server/compose/docker-compose.yml"),true);
             foreach(string table in CraftingRepository.Tables) File.Copy(Path.Combine(game,"x64-server/db/seeds/ep4_data",table+".sql"),Path.Combine(checkout,"x64-server/db/seeds/ep4_data",table+".sql"),true);
             var basis=Repository.Load(); CraftingSeedExport.Export(checkout,Connection,"usa",basis.Fingerprint());
-            Check(Directory.GetFiles(Path.Combine(checkout,"x64-server/db/seeds"),"*.sql",SearchOption.AllDirectories).Length==8,"Wrong exported scope.");
+            Check(Directory.GetFiles(Path.Combine(checkout,"x64-server/db/seeds"),"*.sql",SearchOption.AllDirectories).Length==9,"Wrong exported scope.");
             Reset(); foreach(string table in CraftingRepository.Tables) Exec(File.ReadAllText(Path.Combine(checkout,"x64-server/db/seeds/ep4_data",table+".sql")));
             Check(Repository.Load().Fingerprint()==basis.Fingerprint(),"Export/import round-trip changed data.");
             var before=File.ReadAllText(Path.Combine(checkout,"x64-server/db/seeds/ep4_data/t_crafting_recipe.sql"));
@@ -160,7 +178,7 @@ internal static class Program
     static void Invalid(CraftingCatalog c,string message) => Check(CraftingRules.Validate(c).Any(i=>i.Error && i.Message.Contains(message,StringComparison.OrdinalIgnoreCase)),"Expected validation: "+message);
     static void Exec(string sql) { using var cmd=new MySqlCommand(sql,db); cmd.ExecuteNonQuery(); }
     static string Scalar(string sql) { using var cmd=new MySqlCommand(sql,db); return Convert.ToString(cmd.ExecuteScalar())!; }
-    static void Reset() { Exec("SET FOREIGN_KEY_CHECKS=0;"+string.Join(";",CraftingRepository.Tables.Select(t=>"TRUNCATE TABLE "+t))+";SET FOREIGN_KEY_CHECKS=1;"); }
+    static void Reset() { Exec("SET FOREIGN_KEY_CHECKS=0;"+string.Join(";",CraftingRepository.Tables.Select(t=>"TRUNCATE TABLE "+t))+";INSERT INTO t_crafting_settings VALUES(1,50);SET FOREIGN_KEY_CHECKS=1;"); }
     static void SeedSample() { Reset(); Repository.Save(Repository.Load(),Sample()); }
     static CraftingCatalog Sample() => new() {
         Items=Repository.Load().Items,
@@ -228,10 +246,15 @@ internal static class Program
         Check(manualGrid.EndEdit(),"Manual ID edit was rejected.");
         tabs.SelectedIndex=1; bookFilter.SelectedIndex=0; bookFilter.SelectedIndex=1;
         Check(teachingList.Rows.Count==1 && bookId.Value==200005 && Convert.ToInt32(teachingList.Rows[0].Cells["RecipeCount"].Value)==1,"The manual browser did not follow draft recipe assignments.");
+        tabs.SelectedIndex=3;
+        var cap=tabs.TabPages[3].Controls.Find("MaximumCraftingSkill",true).OfType<NumericUpDown>().Single();
+        Check(cap.Value==50,"Settings did not load database cap."); cap.Value=300; Capture("settings");
+        Check(((Label)type.GetField("recipeSummary",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!).Text.Contains("cap 300"),"Recipe preview retained old cap.");
         var save=(Task)type.GetMethod("SaveAsync",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(editor,null)!;
         deadline=DateTime.UtcNow.AddSeconds(15);
         while(!save.IsCompleted && DateTime.UtcNow<deadline) { Application.DoEvents(); Thread.Sleep(20); }
         Check(save.IsCompletedSuccessfully && Repository.Load().Recipes[0].Manuals.Single().ItemId==200005,"The edited teaching association was not saved.");
+        Check(Repository.Load().SkillCap==300,"Settings UI did not persist cap.");
         tabs.SelectedIndex=2; Capture("ranks"); editor.Close();
     }
     static IEnumerable<Control> Descendants(Control parent)

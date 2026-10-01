@@ -6,7 +6,7 @@ namespace LastChaos_ToolBoxNG.Crafting;
 
 public sealed class CraftingRepository(string connectionString, string locale)
 {
-    public static readonly string[] Tables = ["t_crafting_recipe", "t_crafting_ingredient", "t_crafting_manual",
+    public static readonly string[] Tables = ["t_crafting_settings", "t_crafting_recipe", "t_crafting_ingredient", "t_crafting_manual",
         "t_crafting_bonus_output", "t_crafting_mastery", "t_crafting_mastery_bonus", "t_crafting_master_rank", "t_crafting_master_rank_bonus"];
     private readonly string language = Regex.IsMatch(locale, "^[a-z]+$") ? locale : throw new ArgumentException("Invalid item locale.");
     public CraftingCatalog Load()
@@ -45,7 +45,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
         Rows(db, tx, "SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", Tables.Select(t => "'" + t + "'")) + ")", r => found[r.GetString(0)] = r.GetString(1));
         if (Tables.Any(t => !found.TryGetValue(t, out string? e) || e != "InnoDB"))
-            throw new InvalidOperationException("Crafting requires all eight InnoDB content tables. Apply the game's crafting migrations through 0017; this editor never creates or changes schema.");
+            throw new InvalidOperationException("Crafting requires all nine InnoDB content tables. Apply the game's crafting migrations through 0018; this editor never creates or changes schema.");
         // Hold metadata locks until commit; never let a concurrent ALTER swap in
         // nontransactional storage between validation and the first write.
         using var triggers = new MySqlCommand("SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE IN (" +
@@ -60,6 +60,13 @@ public sealed class CraftingRepository(string connectionString, string locale)
         Rows(db, tx, Lock("SELECT a_index,a_category,a_output_item,a_output_count,a_craft_time_ms,a_required_skill,a_no_skill_up,a_sort_order,a_enable,a_requires_unlock FROM t_crafting_recipe ORDER BY a_index"), r => c.Recipes.Add(new() {
             Id=r.GetInt32(0), Profession=(Profession)r.GetInt32(1), OutputItem=r.GetInt32(2), OutputQuantity=r.GetInt32(3), CraftTimeMs=r.GetInt32(4),
             RequiredSkill=r.GetInt32(5), NoSkillUp=r.GetInt32(6), SortOrder=r.GetInt32(7), Enabled=r.GetBoolean(8), RequiresUnlock=r.GetBoolean(9) }));
+        int settingsRows = 0;
+        Rows(db, tx, Lock("SELECT a_index,a_skill_cap FROM t_crafting_settings ORDER BY a_index"), r => {
+            if (++settingsRows != 1 || r.GetInt32(0) != 1 || r.GetInt32(1) is < 1 or > CraftingRules.MaxSkillLevel)
+                throw new InvalidOperationException("Invalid crafting settings. Expected one maximum skill level from 1 to 65535.");
+            c.SkillCap = r.GetInt32(1);
+        });
+        if (settingsRows != 1) throw new InvalidOperationException("Crafting settings are missing. Apply migration 0018 before editing.");
         var recipes = c.Recipes.ToDictionary(r => r.Id);
         Rows(db, tx, Lock("SELECT a_recipe_index,a_slot,a_item_index,a_count FROM t_crafting_ingredient ORDER BY a_recipe_index,a_slot"), r => {
             var recipe = recipes[r.GetInt32(0)]; CheckSlot(recipe.Ingredients.Count,r.GetInt32(1));
@@ -87,7 +94,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
     public void Save(CraftingCatalog original, CraftingCatalog edited)
     {
         // Snapshot the UI draft before work leaves its thread. This API owns one
-        // connection/transaction and only the eight authored content tables.
+        // connection/transaction and only the nine authored content tables.
         using var db=new MySqlConnection(connectionString); db.Open();
         using var tx=db.BeginTransaction(IsolationLevel.RepeatableRead);
         try {
@@ -99,6 +106,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
             edited.Items=current.Items;
             var errors=CraftingRules.Validate(edited).Where(i=>i.Error).ToList();
             if(errors.Count!=0) throw new InvalidOperationException(string.Join("\n",errors));
+            Execute(db,tx,"UPDATE t_crafting_settings SET a_skill_cap=@p0 WHERE a_index=1",edited.SkillCap);
             foreach(var r in edited.Recipes) {
                 var old=original.Recipes.FirstOrDefault(o=>o.Id==r.Id);
                 if(old!=null && System.Text.Json.JsonSerializer.Serialize(old)==System.Text.Json.JsonSerializer.Serialize(r)) continue;
