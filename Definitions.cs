@@ -950,26 +950,34 @@
 		"QUEST"
 	};
 
-	public static readonly string[] SpecialSkillTypes =
+	public sealed record SpecialSkillTypeChoice(int Id, string Name)
 	{
-		// Standards
-		"MINING",
-		"GATHERING",
-		"CHARGE",
-		"STONE",
-		"PLANT",
-		"ELEMENT",
+		public override string ToString() => Name;
+	}
 
-		"MAKE_WEAPON",
-		"MAKE_WEAR",
-		"MAKE_G_B",
-		"MAKE_ARMOR",
-		"MAKE_H_S",
-		"MAKE_POTINO",
-
-		"PROCESS_NPC",
-		"STAT_TRAINING"
+	// These are stored server values, not combo-box positions (which include No).
+	public static readonly SpecialSkillTypeChoice[] SpecialSkillTypes =
+	{
+		new(-1, "No"),
+		new(0, "MINING"),
+		new(1, "GATHERING"),
+		new(2, "CHARGE"),
+		new(3, "STONE"),
+		new(4, "PLANT"),
+		new(5, "ELEMENT"),
+		new(6, "MAKE_WEAPON"),
+		new(7, "MAKE_WEAR"),
+		new(8, "MAKE_G_B"),
+		new(9, "MAKE_ARMOR"),
+		new(10, "MAKE_H_S"),
+		new(11, "MAKE_POTINO"),
+		new(12, "PROCESS_NPC"),
+		new(13, "STAT_TRAINING"),
+		new(14, "JEWEL_DUST_TRAINING")
 	};
+
+	public static SpecialSkillTypeChoice GetSpecialSkillTypeChoice(int id) =>
+		SpecialSkillTypes.FirstOrDefault(choice => choice.Id == id) ?? new(id, $"Unknown ({id}) - preserved");
 
 	public static readonly string[] NPCAIType =
 	{

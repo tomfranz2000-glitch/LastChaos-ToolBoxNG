@@ -203,7 +203,7 @@ namespace LastChaos_ToolBoxNG
 			layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
 
 			AddField(layout, 0, "Affinity ID", tbIndex);
-			AddField(layout, 1, "Name", tbName);
+			AddField(layout, 1, $"Name ({pMain.pSettings.WorkLocale.ToUpperInvariant()})", tbName);
 			AddField(layout, 2, "Max points", tbMaxValue);
 			AddField(layout, 3, "Join NAS cost", tbNas);
 			AddField(layout, 4, "Texture ID", tbTextureId);
@@ -446,7 +446,7 @@ namespace LastChaos_ToolBoxNG
 			foreach (DataRow row in affinityTable.Rows)
 			{
 				int id = RowInt(row, "a_index");
-				string name = RowString(row, "a_name");
+				string name = RowString(row, "a_name_" + pMain.pSettings.WorkLocale);
 				bool enabled = RowInt(row, "a_enable", 1) != 0;
 				string text = $"{id} - {name}" + (enabled ? "" : " [disabled]");
 				if (search.Length > 0 && !text.Contains(search, StringComparison.OrdinalIgnoreCase))
@@ -505,7 +505,7 @@ namespace LastChaos_ToolBoxNG
 
 			bLoading = true;
 			tbIndex.Text = RowInt(row, "a_index").ToString();
-			tbName.Text = RowString(row, "a_name");
+			tbName.Text = RowString(row, "a_name_" + pMain.pSettings.WorkLocale);
 			tbMaxValue.Text = RowInt(row, "a_maxvalue").ToString();
 			tbNas.Text = RowInt(row, "a_nas").ToString();
 			tbTextureId.Text = RowInt(row, "a_texture_id").ToString();
@@ -662,13 +662,21 @@ namespace LastChaos_ToolBoxNG
 
 			string db = pMain.pSettings.DBData;
 			string localeColumn = "a_string_" + pMain.pSettings.WorkLocale;
+			string nameColumn = "a_name_" + pMain.pSettings.WorkLocale;
+			if (affinityTable == null || !affinityTable.Columns.Contains(nameColumn) ||
+				!pMain.pSettings.WorkLocale.All(c => char.IsAsciiLetter(c) || c == '_'))
+			{
+				MessageBox.Show($"The affinity table does not support the configured name locale ({pMain.pSettings.WorkLocale}). Reload the data or correct WorkLocale before saving.", "Affinity Editor", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+				return;
+			}
 			HashSet<int> rewardNpcIds = RewardNpcIdsWithValidRows();
 			StringBuilder query = new();
 			query.Append("START TRANSACTION;\n");
-			query.Append($"INSERT INTO {db}.t_affinity (`a_index`, `a_name`, `a_maxvalue`, `a_nas`, `a_texture_id`, `a_texture_row`, `a_texture_col`, `a_needitemidx`, `a_needitemcount`, `a_needlevel`, `a_affinity_idx`, `a_affinity_value`, `a_enable`) VALUES ");
-			query.Append($"({id}, '{SqlText(tbName.Text)}', {IntText(tbMaxValue)}, {IntText(tbNas)}, {IntText(tbTextureId)}, {IntText(tbTextureRow)}, {IntText(tbTextureCol)}, {IntText(tbNeedItemIdx)}, {IntText(tbNeedItemCount)}, {IntText(tbNeedLevel)}, {IntText(tbNeedAffinityIdx)}, {IntText(tbNeedAffinityValue)}, {(cbEnable.Checked ? 1 : 0)}) ");
+			// Keep the server's base name and the exported work-locale name in sync; other translations stay untouched.
+			query.Append($"INSERT INTO {db}.t_affinity (`a_index`, `a_name`, `{nameColumn}`, `a_maxvalue`, `a_nas`, `a_texture_id`, `a_texture_row`, `a_texture_col`, `a_needitemidx`, `a_needitemcount`, `a_needlevel`, `a_affinity_idx`, `a_affinity_value`, `a_enable`) VALUES ");
+			query.Append($"({id}, '{SqlText(tbName.Text)}', '{SqlText(tbName.Text)}', {IntText(tbMaxValue)}, {IntText(tbNas)}, {IntText(tbTextureId)}, {IntText(tbTextureRow)}, {IntText(tbTextureCol)}, {IntText(tbNeedItemIdx)}, {IntText(tbNeedItemCount)}, {IntText(tbNeedLevel)}, {IntText(tbNeedAffinityIdx)}, {IntText(tbNeedAffinityValue)}, {(cbEnable.Checked ? 1 : 0)}) ");
 			query.Append("ON DUPLICATE KEY UPDATE ");
-			query.Append($"`a_name`=VALUES(`a_name`), `a_maxvalue`=VALUES(`a_maxvalue`), `a_nas`=VALUES(`a_nas`), `a_texture_id`=VALUES(`a_texture_id`), `a_texture_row`=VALUES(`a_texture_row`), `a_texture_col`=VALUES(`a_texture_col`), `a_needitemidx`=VALUES(`a_needitemidx`), `a_needitemcount`=VALUES(`a_needitemcount`), `a_needlevel`=VALUES(`a_needlevel`), `a_affinity_idx`=VALUES(`a_affinity_idx`), `a_affinity_value`=VALUES(`a_affinity_value`), `a_enable`=VALUES(`a_enable`);\n");
+			query.Append($"`a_name`=VALUES(`a_name`), `{nameColumn}`=VALUES(`{nameColumn}`), `a_maxvalue`=VALUES(`a_maxvalue`), `a_nas`=VALUES(`a_nas`), `a_texture_id`=VALUES(`a_texture_id`), `a_texture_row`=VALUES(`a_texture_row`), `a_texture_col`=VALUES(`a_texture_col`), `a_needitemidx`=VALUES(`a_needitemidx`), `a_needitemcount`=VALUES(`a_needitemcount`), `a_needlevel`=VALUES(`a_needlevel`), `a_affinity_idx`=VALUES(`a_affinity_idx`), `a_affinity_value`=VALUES(`a_affinity_value`), `a_enable`=VALUES(`a_enable`);\n");
 
 			query.Append($"DELETE FROM {db}.t_affinity_reward_item WHERE a_npcidx IN (SELECT a_npcidx FROM {db}.t_affinity_npc WHERE a_affinity_idx={id});\n");
 			query.Append($"DELETE FROM {db}.t_affinity_npc WHERE a_affinity_idx={id};\n");

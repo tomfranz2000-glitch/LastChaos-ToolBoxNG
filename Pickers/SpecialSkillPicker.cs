@@ -73,10 +73,7 @@
 
 			int nType = Convert.ToInt32(pRowSpecialSkill["a_type"]);
 
-			if (nType < 0 || nType >= Defs.SpecialSkillTypes.Length)
-				pMain.Logger(LogTypes.Error, $"Special Skill Picker > Special Skill: {pRowSpecialSkill["a_index"]} Error: a_type out of range.");
-			else
-				AddInfo(Defs.SpecialSkillTypes[nType]);
+			AddInfo(Defs.GetSpecialSkillTypeChoice(nType).Name);
 
 			AddInfo("Jobs:", true);
 

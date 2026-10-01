@@ -1,8 +1,8 @@
 ﻿//#define ENABLE_SECOND_SKILL_TO_CRAFT	// NOTE: These values are required by the server, but are not actually used
 #define ALLOWED_ZONE_SYSTEM	// NOTE: Custom system made by NicolasG, disable that to use normal a_zone_flag
-#define DAILY_REWARD_SYSTEM	// NOTE: Custom system made by NicolasG, disable that if don't use it.
-#define REWORKED_EXCHANGE_SYSTEM	// NOTE: Custom system made by NicolasG, disable that if don't use it.
-#define REWORKED_EVENT_PACKAGE_ITEM	// NOTE: Custom system made by NicolasG, disable that if don't use it.
+#undef DAILY_REWARD_SYSTEM	// Not part of this server's content schema.
+#undef REWORKED_EXCHANGE_SYSTEM	// This server uses the original equipment exchange contract.
+#undef REWORKED_EVENT_PACKAGE_ITEM	// No ep4_data.t_key custom reward table.
 
 namespace LastChaos_ToolBoxNG
 {
@@ -22,7 +22,7 @@ namespace LastChaos_ToolBoxNG
 		private Dictionary<Control, ToolTip>? pToolTips = new();
 		private ContextMenuStrip? cmFortune, cmCommonInput;
 
-		public ItemEditor(Main mainForm)
+		public ItemEditor(Main mainForm, int initialItemId = 0, bool duplicateAsRecipeBook = false)
 		{
 			InitializeComponent();
 
@@ -43,6 +43,7 @@ namespace LastChaos_ToolBoxNG
 			tbAllowedZoneFlag.Visible = true;
 #endif
 			pMain = mainForm;
+			InitializeCraftingLinks(initialItemId, duplicateAsRecipeBook);
 			/****************************************/
 			gridFortune.TopLeftHeaderCell.Value = "N°";
 			//gridFortune.CellValueChanged += gridFortune_CellValueChanged;
@@ -825,6 +826,7 @@ namespace LastChaos_ToolBoxNG
 			pProgressDialog.Close();
 
 			MainList.Focus();
+			ApplyCraftingNavigation();
 		}
 
 		private void ItemEditor_FormClosing(object sender, FormClosingEventArgs e)	// NOTE: Here is an example of the unsaved data warning messages in case want to close the form.
@@ -1223,6 +1225,7 @@ namespace LastChaos_ToolBoxNG
 
 			btnCopy.Enabled = true;
 			btnDelete.Enabled = true;
+			RefreshCraftingLinks();
 		}
 
 		private void tbSearch_TextChanged(object sender, EventArgs e) { nSearchPosition = 0; }
@@ -1702,6 +1705,7 @@ namespace LastChaos_ToolBoxNG
 		{
 			bool bSuccess = true;
 			int nItemID = Convert.ToInt32(pTempItemRow["a_index"]);
+			if (!TryCraftingDeleteGuard(nItemID, out string craftingDeleteGuard)) return;
 			DataRow? pItemRow = pMain.pTables.ItemTable?.Select("a_index=" + nItemID).FirstOrDefault();
 
 			string[] NPCJobDropColumns = {
@@ -1728,7 +1732,7 @@ namespace LastChaos_ToolBoxNG
 
 			string[] ItemExchangeColumns =
 			{
-				"result_itemIndex",
+				"a_result_itemIndex",
 				"source_itemIndex0",
 				"source_itemIndex1",
 				"source_itemIndex2",
@@ -1775,6 +1779,8 @@ namespace LastChaos_ToolBoxNG
 
 				strbuilderQuery.Append("START TRANSACTION;\n");
 
+				strbuilderQuery.Append(craftingDeleteGuard);
+
 				strbuilderQuery.Append($"DELETE FROM {pMain.pSettings.DBData}.t_fortune_head WHERE a_item_idx={nItemID};\n");
 
 				strbuilderQuery.Append($"DELETE FROM {pMain.pSettings.DBData}.t_fortune_data WHERE a_item_idx={nItemID};\n");
@@ -1799,23 +1805,23 @@ namespace LastChaos_ToolBoxNG
 
 				strbuilderQuery.Append($"DELETE FROM {pMain.pSettings.DBData}.t_moonstone_reward WHERE a_giftindex={nItemID};\n");
 
-				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_DropIDToDelete (a_drop_idx INT);\n" +
+				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_DropIDToDelete (a_drop_idx INT) ENGINE=InnoDB;\n" +
 					$"INSERT INTO Temp_DropIDToDelete(a_drop_idx) SELECT DISTINCT a_drop_idx FROM {pMain.pSettings.DBData}.t_drop_item_data WHERE a_item_idx={nItemID};\n" +
 					$"DELETE FROM {pMain.pSettings.DBData}.t_drop_item_data WHERE a_item_idx={nItemID};\n" +
-					$"DELETE FROM {pMain.pSettings.DBData}.t_drop_item_head WHERE a_drop_idx IN(SELECT a_drop_idx FROM Temp_DropIDToDelete);\n" +
+					$"DELETE FROM {pMain.pSettings.DBData}.t_drop_item_head WHERE a_drop_idx IN(SELECT a_drop_idx FROM Temp_DropIDToDelete) AND NOT EXISTS(SELECT 1 FROM {pMain.pSettings.DBData}.t_drop_item_data AS remaining WHERE remaining.a_drop_idx=t_drop_item_head.a_drop_idx);\n" +
 					"DROP TEMPORARY TABLE Temp_DropIDToDelete;\n");
 
 				strbuilderQuery.Append($"UPDATE {pMain.pSettings.DBData}.t_item_collection SET a_enable=0 WHERE {string.Join(" OR ", ItemCollectionColumns.Select(col => $"{col}={nItemID}"))};\n");
 
-				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_RewardIDToDelete (a_reward_idx INT);\n" +
-					$"INSERT INTO Temp_RewardIDToDelete (a_reward_idx) SELECT DISTINCT a_reward_idx FROM {pMain.pSettings.DBData}.t_reward_data WHERE a_idx={nItemID};\n" +
-					$"DELETE FROM {pMain.pSettings.DBData}.t_reward_data WHERE a_idx={nItemID};\n" +
-					$"DELETE FROM {pMain.pSettings.DBData}.t_reward_head WHERE a_reward_idx IN(SELECT a_reward_idx FROM Temp_RewardIDToDelete);\n" +
+				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_RewardIDToDelete (a_reward_idx INT) ENGINE=InnoDB;\n" +
+					$"INSERT INTO Temp_RewardIDToDelete (a_reward_idx) SELECT DISTINCT a_reward_idx FROM {pMain.pSettings.DBData}.t_reward_data WHERE a_type=0 AND a_idx={nItemID};\n" +
+					$"DELETE FROM {pMain.pSettings.DBData}.t_reward_data WHERE a_type=0 AND a_idx={nItemID};\n" +
+					$"DELETE FROM {pMain.pSettings.DBData}.t_reward_head WHERE a_reward_idx IN(SELECT a_reward_idx FROM Temp_RewardIDToDelete) AND NOT EXISTS(SELECT 1 FROM {pMain.pSettings.DBData}.t_reward_data AS remaining WHERE remaining.a_reward_idx=t_reward_head.a_reward_idx);\n" +
 					"DROP TEMPORARY TABLE Temp_RewardIDToDelete;\n");
 
 				strbuilderQuery.Append($"UPDATE {pMain.pSettings.DBData}.t_item_exchange SET a_enable=0 WHERE {string.Join(" OR ", ItemExchangeColumns.Select(col => $"{col}={nItemID}"))};\n");
 
-				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_CatalogIDToDelete (a_ctid INT);\n" +
+				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_CatalogIDToDelete (a_ctid INT) ENGINE=InnoDB;\n" +
 					$"INSERT INTO Temp_CatalogIDToDelete (a_ctid) SELECT DISTINCT a_ctid FROM {pMain.pSettings.DBData}.t_ct_item WHERE a_item_idx={nItemID};\n" +
 					$"DELETE FROM {pMain.pSettings.DBData}.t_ct_item WHERE a_item_idx={nItemID};\n" +
 					$"UPDATE {pMain.pSettings.DBData}.t_catalog SET a_enable=0 WHERE a_ctid IN(SELECT a_ctid FROM Temp_CatalogIDToDelete);\n" +
@@ -1876,7 +1882,7 @@ namespace LastChaos_ToolBoxNG
 					$"OR a_giveItem_10 LIKE CONCAT('% ', CAST({nItemID} AS CHAR))" +
 					$"OR a_giveItem_10=CAST({nItemID} AS CHAR);\n");
 
-				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_LuckyDrawIDToDelete (a_luckydraw_idx INT);\n" +
+				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_LuckyDrawIDToDelete (a_luckydraw_idx INT) ENGINE=InnoDB;\n" +
 					$"INSERT INTO Temp_LuckyDrawIDToDelete (a_luckydraw_idx) SELECT DISTINCT a_luckydraw_idx FROM {pMain.pSettings.DBData}.t_luckydrawneed WHERE a_item_idx={nItemID};\n" +
 					$"DELETE FROM {pMain.pSettings.DBData}.t_luckydrawneed WHERE a_item_idx={nItemID};\n" +
 					$"INSERT INTO Temp_LuckyDrawIDToDelete (a_luckydraw_idx) SELECT DISTINCT a_luckydraw_idx FROM {pMain.pSettings.DBData}.t_luckydrawresult WHERE a_item_idx={nItemID};\n" +
@@ -1888,7 +1894,7 @@ namespace LastChaos_ToolBoxNG
 				strbuilderQuery.Append($"UPDATE {pMain.pSettings.DBData}.t_quest SET a_enable=0 WHERE {string.Join(" OR ", QuestColumns.Select(col => $"{col}={nItemID}"))};\n");
 
 				// NOTE: If there no more levels from same skill, delete the skill itself.
-				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_SkillIDToDisable (a_index INT);\n" +
+				strbuilderQuery.Append("CREATE TEMPORARY TABLE Temp_SkillIDToDisable (a_index INT) ENGINE=InnoDB;\n" +
 					$"INSERT INTO Temp_SkillIDToDisable (a_index) SELECT DISTINCT a_index FROM {pMain.pSettings.DBData}.t_skilllevel WHERE {string.Join(" OR ", SkillLevelColumns.Select(col => $"{col}={nItemID}"))};\n" +
 					$"DELETE FROM {pMain.pSettings.DBData}.t_skilllevel WHERE {string.Join(" OR ", SkillLevelColumns.Select(col => $"{col}={nItemID}"))};\n" +
 					$"DELETE FROM {pMain.pSettings.DBData}.t_skill WHERE a_index IN(SELECT a_index FROM Temp_SkillIDToDisable)AND NOT EXISTS(SELECT 1 FROM t_skilllevel WHERE a_index = t_skill.a_index);\n" +

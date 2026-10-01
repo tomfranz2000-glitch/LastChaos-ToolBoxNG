@@ -7,6 +7,7 @@ namespace LastChaos_ToolBoxNG
 		private const int DefaultIconTex = 0;
 		private const int DefaultIconRow = 4;
 		private const int DefaultIconCol = 4;
+		private const int MaxGoldCost = short.MaxValue;
 
 		private readonly Main pMain;
 		private readonly ComboBox cbNpc = new();
@@ -55,7 +56,7 @@ namespace LastChaos_ToolBoxNG
 			root.Controls.Add(new Label
 			{
 				Dock = DockStyle.Fill,
-				Text = "Uses special skill type STAT_TRAINING. Cost is gold, saved in a_levelN_need_sp. Stat option/value are saved in a_levelN_num0/num1. Max 5 levels are supported by the existing special-skill storage.",
+				Text = "Uses special skill type STAT_TRAINING. Gold cost must be 0-32767 (the existing signed SMALLINT storage limit). Stat option/value use a_levelN_num0/num1. Up to 5 levels are supported.",
 				TextAlign = ContentAlignment.MiddleLeft
 			}, 0, 0);
 
@@ -124,7 +125,18 @@ namespace LastChaos_ToolBoxNG
 			grid.MultiSelect = false;
 			grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.DisplayedCells;
 			grid.ClipboardCopyMode = DataGridViewClipboardCopyMode.EnableWithoutHeaderText;
-			grid.DataError += (_, _) => { };
+			grid.CellValidating += ValidateGoldCell;
+			grid.DataError += (_, e) =>
+			{
+				e.ThrowException = false;
+				e.Cancel = true;
+				string column = e.ColumnIndex >= 0 ? grid.Columns[e.ColumnIndex].HeaderText : "value";
+				string message = $"Invalid {column}. Correct the value before saving. Gold costs must be whole numbers from 0 to {MaxGoldCost}.";
+				if (e.RowIndex >= 0 && e.ColumnIndex >= 0)
+					grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = message;
+				lblStatus.Text = message;
+			};
+			grid.CellEndEdit += (_, e) => grid.Rows[e.RowIndex].Cells[e.ColumnIndex].ErrorText = "";
 
 			grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "a_index", HeaderText = "Boost ID", ReadOnly = true });
 			grid.Columns.Add(new DataGridViewCheckBoxColumn { DataPropertyName = "a_enable", HeaderText = "Enabled", TrueValue = 1, FalseValue = 0 });
@@ -139,7 +151,7 @@ namespace LastChaos_ToolBoxNG
 			{
 				int displayLevel = level + 1;
 				grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = $"a_level{level}_need_level", HeaderText = $"L{displayLevel} req level" });
-				grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = $"a_level{level}_need_sp", HeaderText = $"L{displayLevel} gold" });
+				grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = $"a_level{level}_need_sp", HeaderText = $"L{displayLevel} gold", ToolTipText = $"Whole number from 0 to {MaxGoldCost}. Stored as signed SMALLINT." });
 				grid.Columns.Add(new DataGridViewComboBoxColumn
 				{
 					DataPropertyName = $"a_level{level}_num0",
@@ -151,6 +163,47 @@ namespace LastChaos_ToolBoxNG
 				});
 				grid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = $"a_level{level}_num1", HeaderText = $"L{displayLevel} amount" });
 			}
+		}
+
+		private void ValidateGoldCell(object? sender, DataGridViewCellValidatingEventArgs e)
+		{
+			if (!grid.Columns[e.ColumnIndex].DataPropertyName.EndsWith("_need_sp", StringComparison.Ordinal))
+				return;
+
+			DataGridViewCell cell = grid.Rows[e.RowIndex].Cells[e.ColumnIndex];
+			if (!TryValidateGoldCost(e.FormattedValue, out _))
+			{
+				e.Cancel = true;
+				cell.ErrorText = $"Gold cost must be a whole number from 0 to {MaxGoldCost}.";
+				lblStatus.Text = cell.ErrorText;
+			}
+			else
+				cell.ErrorText = "";
+		}
+
+		internal static bool TryValidateGoldCost(object? value, out int cost) =>
+			int.TryParse(Convert.ToString(value, CultureInfo.CurrentCulture), NumberStyles.Integer, CultureInfo.CurrentCulture, out cost) &&
+			cost >= 0 && cost <= MaxGoldCost;
+
+		internal static bool TryValidateBoostCosts(DataRow row, out string error)
+		{
+			for (int level = 0; level < MaxLevels; level++)
+			{
+				if (!TryValidateGoldCost(row[$"a_level{level}_need_sp"], out _))
+				{
+					error = $"Boost {row["a_index"]}, level {level + 1}: gold cost must be a whole number from 0 to {MaxGoldCost}.";
+					return false;
+				}
+			}
+			error = "";
+			return true;
+		}
+
+		private static int GetGoldCost(DataRow row, int level)
+		{
+			if (!TryValidateGoldCost(row[$"a_level{level}_need_sp"], out int cost))
+				throw new FormatException($"Boost {row["a_index"]}, level {level + 1}: gold cost must be a whole number from 0 to {MaxGoldCost}.");
+			return cost;
 		}
 
 		private static List<OptionChoice> BuildOptionChoices()
@@ -311,22 +364,52 @@ namespace LastChaos_ToolBoxNG
 			if (boostTable == null)
 				return;
 
-			Validate();
-			grid.EndEdit();
-			SetBusy(true, "Saving stat training boosts...");
-
-			bool ok = true;
-			foreach (DataRow row in boostTable.Rows)
+			try
 			{
-				NormalizeBoostRow(row);
-				string query = BuildSaveQuery(row);
-				ok = await Task.Run(() => pMain.QueryUpdateInsertDelete(pMain.pSettings.DBCharset, query, out long _, false));
-				if (!ok)
-					break;
-			}
+				if (!Validate() || !grid.EndEdit())
+				{
+					ReportSaveError("Correct the highlighted cell before saving. Gold costs must be whole numbers from 0 to 32767.");
+					return;
+				}
+				BindingContext?[boostTable]?.EndCurrentEdit();
+				foreach (DataRow row in boostTable.Rows)
+				{
+					if (!TryValidateBoostCosts(row, out string error))
+					{
+						ReportSaveError(error);
+						return;
+					}
+				}
 
-			await LoadEditorAsync();
-			SetBusy(false, ok ? "Saved stat training boosts. Export SPECIALSKILLS and MOBS, then restart server and client before testing." : "Save failed. Check the Toolbox console.");
+				List<string> queries = ["START TRANSACTION;"];
+				foreach (DataRow row in boostTable.Rows)
+				{
+					NormalizeBoostRow(row);
+					queries.Add(BuildSaveQuery(row));
+				}
+				queries.Add("COMMIT;");
+				string query = string.Join(Environment.NewLine, queries);
+				SetBusy(true, "Saving stat training boosts...");
+				bool ok = await Task.Run(() => pMain.QueryUpdateInsertDelete(pMain.pSettings.DBCharset, query, out long _, false));
+				if (!ok)
+				{
+					ReportSaveError("Save failed. Your edits are retained. Check the Toolbox console.");
+					return;
+				}
+				await LoadEditorAsync();
+				SetBusy(false, "Saved stat training boosts. Export SPECIALSKILLS and MOBS, then restart server and client before testing.");
+			}
+			catch (Exception ex)
+			{
+				ReportSaveError($"Save failed: {ex.Message}. Your edits are retained.");
+			}
+		}
+
+		private void ReportSaveError(string message)
+		{
+			SetBusy(false, message);
+			pMain.Logger(LogTypes.Error, $"Gold Stat Training Editor > {message}");
+			MessageBox.Show(this, message, "Gold stat training", MessageBoxButtons.OK, MessageBoxIcon.Error);
 		}
 
 		private string BuildSaveQuery(DataRow row)
@@ -369,7 +452,7 @@ namespace LastChaos_ToolBoxNG
 			for (int level = 0; level < MaxLevels; level++)
 			{
 				values.Add(($"a_level{level}_need_level", GetInt(row, $"a_level{level}_need_level", 1).ToString()));
-				values.Add(($"a_level{level}_need_sp", Math.Max(0, GetInt(row, $"a_level{level}_need_sp")).ToString()));
+				values.Add(($"a_level{level}_need_sp", GetGoldCost(row, level).ToString()));
 				values.Add(($"a_level{level}_num0", GetInt(row, $"a_level{level}_num0").ToString()));
 				values.Add(($"a_level{level}_num1", Math.Max(0, GetInt(row, $"a_level{level}_num1")).ToString()));
 			}
@@ -403,7 +486,7 @@ namespace LastChaos_ToolBoxNG
 			for (int level = 0; level < MaxLevels; level++)
 			{
 				row[$"a_level{level}_need_level"] = Math.Max(1, GetInt(row, $"a_level{level}_need_level", 1));
-				row[$"a_level{level}_need_sp"] = Math.Max(0, GetInt(row, $"a_level{level}_need_sp"));
+				row[$"a_level{level}_need_sp"] = GetGoldCost(row, level);
 				row[$"a_level{level}_num1"] = Math.Max(0, GetInt(row, $"a_level{level}_num1"));
 			}
 		}
@@ -441,6 +524,8 @@ namespace LastChaos_ToolBoxNG
 
 		private void SetBusy(bool busy, string message)
 		{
+			grid.Enabled = !busy;
+			cbNpc.Enabled = !busy;
 			btnReload.Enabled = !busy;
 			btnAssignNpc.Enabled = !busy;
 			btnClearNpc.Enabled = !busy;

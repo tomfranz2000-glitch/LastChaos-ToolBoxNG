@@ -2,6 +2,8 @@
 {
 	public partial class QuestEditor : Form
 	{
+		private const string UnavailableNotice = "Quest editing is unavailable in this version.\n\nThe existing editor is unfinished and its save/delete actions target rare options instead of quests.\n\nNew, Copy, Delete, and Update are disabled to protect your data.";
+		private static bool QuestWritesSupported => false;
 		private readonly Main pMain;
 		private bool bUserAction = false;
 		private bool bUnsavedChanges = false;
@@ -14,7 +16,28 @@
 			InitializeComponent();
 
 			pMain = mainForm;
+
+			// The copied rare-option form is not a functioning quest editor. Do not run
+			// its loader either: it accesses controls/columns absent from the quest form.
+			Load -= RareOptionEditor_LoadAsync;
+			foreach (Control control in Controls)
+				control.Enabled = false;
+			Text = "Quest Editor - unavailable";
+			Label notice = new()
+			{
+				Dock = DockStyle.Fill,
+				Padding = new Padding(32),
+				TextAlign = ContentAlignment.MiddleCenter,
+				Text = UnavailableNotice,
+				BackColor = BackColor,
+				ForeColor = ForeColor
+			};
+			Controls.Add(notice);
+			notice.BringToFront();
 		}
+
+		private void ShowUnavailableNotice() =>
+			MessageBox.Show(this, UnavailableNotice, "Quest Editor unavailable", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
 		private (bool bProceed, bool bDeleteActual) CheckUnsavedChanges()
 		{
@@ -98,8 +121,10 @@
 			}
 		}
 
-		private async void RareOptionEditor_LoadAsync(object sender, EventArgs e)
+		private async void RareOptionEditor_LoadAsync(object? sender, EventArgs e)
 		{
+			if (!QuestWritesSupported)
+				return;
 			MessageBox_Progress pProgressDialog = new(this, "Loading Data, Please Wait...");
 			/****************************************/
 			cbNationSelector.BeginUpdate();
@@ -377,6 +402,7 @@
 
 		private void btnAddNew_Click(object sender, EventArgs e)
 		{
+			if (!QuestWritesSupported) { ShowUnavailableNotice(); return; }
 			bool bSuccess = true;
 			var (bProceed, bDeleteActual) = CheckUnsavedChanges();
 
@@ -555,6 +581,7 @@
 
 		private void btnCopy_Click(object sender, EventArgs e)
 		{
+			if (!QuestWritesSupported) { ShowUnavailableNotice(); return; }
 			var (bProceed, bDeleteActual) = CheckUnsavedChanges();
 
 			if (bDeleteActual)
@@ -582,6 +609,7 @@
 
 		private void btnDelete_Click(object sender, EventArgs e)
 		{
+			if (!QuestWritesSupported) { ShowUnavailableNotice(); return; }
 			bool bSuccess = true;
 			int nRareOptionID = Convert.ToInt32(pTempQuestRow["a_index"]);
 			DataRow? pRareOptionTableRow = pMain.pTables.RareOptionTable?.Select("a_index=" + nRareOptionID).FirstOrDefault();
@@ -845,6 +873,7 @@
 		/****************************************/
 		private void btnUpdate_Click(object sender, EventArgs e)
 		{
+			if (!QuestWritesSupported) { ShowUnavailableNotice(); return; }
 			bool bSuccess = true;
 			int nItemID = Convert.ToInt32(pTempQuestRow["a_index"]);
 			StringBuilder strbuilderQuery = new();
