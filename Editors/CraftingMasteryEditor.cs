@@ -65,7 +65,7 @@ public sealed partial class CraftingMasteryEditor : Form
     {
         var toolbar=Flow();
         toolbar.Controls.AddRange([Button("Save all changes",async ()=>await SaveAsync()),Button("Revert / Reload",async ()=>await ReloadAsync(true)),
-            Button("Validate / Overview",()=>Overview()),Button("Export crafting seeds",async ()=>await ExportAsync())]);
+            Button("Validate / Overview",()=>Overview()),Button("Export mastery & crafting seeds",async ()=>await ExportAsync())]);
         var root=new TableLayoutPanel { Dock=DockStyle.Fill, ColumnCount=1, RowCount=3 };
         root.RowStyles.Add(new(SizeType.AutoSize)); root.RowStyles.Add(new(SizeType.Percent,100)); root.RowStyles.Add(new(SizeType.Absolute,42));
         root.Controls.Add(toolbar,0,0); root.Controls.Add(tabs,0,1); root.Controls.Add(status,0,2); Controls.Add(root);
@@ -90,9 +90,11 @@ public sealed partial class CraftingMasteryEditor : Form
         Shown+=(_,_)=>rankSplit.SplitterDistance=Math.Max(330,Math.Min(450,rankSplit.Width-585));
         page.Controls.Add(rankSplit);
         var rankTools=Flow(); rankTools.Controls.AddRange([Button("New rank",()=>NewRank()),Button("Duplicate",()=>NewRank(true)),Button("Move up",()=>MoveRank(-1)),Button("Move down",()=>MoveRank(1)),Button("Discard new",()=>DiscardNewRank())]);
-        Column(ranks,"Order","Order",40); Column(ranks,"Name","Rank",140); Column(ranks,"RequiredMastered","Mastered",65);
+        Column(ranks,"Order","Order",40); Column(ranks,"Name","Rank",140); Column(ranks,"RequiredMastered","Points",65);
         rankSplit.Panel1.Controls.Add(Vertical(rankTools,ranks)); rankSplit.Panel2.Controls.Add(rankDetail);
         ranks.SelectionChanged+=(_,_)=> { if(binding || !CommitGrids()) return; selectedRank=ranks.CurrentRow?.DataBoundItem as MastersRank; ShowRank(); };
+
+        BuildGatheringMastery();
 
         page=new("Settings"); tabs.TabPages.Add(page);
         var settings=Fields(); page.Controls.Add(settings);
@@ -106,7 +108,7 @@ public sealed partial class CraftingMasteryEditor : Form
     {
         if(binding) return;
         dirty=true; Text="Crafting & Mastery Editor *";
-        catalog.UpdateNames(); recipes.Refresh(); ranks.Refresh(); RefreshTeachingItems(); UpdateRecipeSummary(); UpdateRankSummary();
+        catalog.UpdateNames(); recipes.Refresh(); ranks.Refresh(); gatheringRows.Refresh(); RefreshTeachingItems(); UpdateRecipeSummary(); UpdateRankSummary(); UpdateGatheringSummary();
         status.Text="Unsaved changes. Save validates and commits the complete draft. Retired definitions retain earned bonuses; edited bonuses affect existing masters.";
     }
     private void Error(Exception e) { status.Text=e.Message; MessageBox.Show(this,e.Message,"Crafting & Mastery",MessageBoxButtons.OK,MessageBoxIcon.Error); }
@@ -125,8 +127,8 @@ public sealed partial class CraftingMasteryEditor : Form
             foreach(var image in icons.Values) image?.Dispose(); icons.Clear();
             catalog=result; original=CraftingCatalog.Copy(result); loaded=true; dirty=false; Text="Crafting & Mastery Editor";
             binding=true; maximumSkill.Value=catalog.SkillCap; binding=false;
-            FilterRecipes(); RefreshRanks(); RefreshTeachingItems();
-            status.Text=$"Loaded {catalog.Recipes.Count} recipes and {catalog.Ranks.Count} ranks. Crafting changes need only close/reopen /craft; new items and artwork need their normal deployment.";
+            FilterRecipes(); RefreshRanks(); RefreshTeachingItems(); RefreshGathering();
+            status.Text=$"Loaded {catalog.Recipes.Count} recipes, {catalog.Gathering.Count} gathering resources and {catalog.Ranks.Count} Master Ranks. Reopen /craft or /gather to refresh authored data.";
         });
     }
     private bool CommitGrids()
@@ -149,7 +151,7 @@ public sealed partial class CraftingMasteryEditor : Form
             catalog.Items=draft.Items;
             original=draft; dirty=false; Text="Crafting & Mastery Editor";
             RefreshTeachingItems();
-            status.Text="Saved all changes. Close and reopen /craft to refresh. Export crafting seeds to record this content in Git.";
+            status.Text="Saved all changes. Close and reopen /craft or /gather to refresh. Export the content seeds to record these edits in Git.";
         });
     }
     private void FilterRecipes(int? select=null)

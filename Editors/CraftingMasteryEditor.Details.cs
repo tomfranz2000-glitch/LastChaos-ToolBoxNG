@@ -51,9 +51,11 @@ public sealed partial class CraftingMasteryEditor
         Number(fields,"Minimum skill to craft",1,CraftingRules.MaxSkillLevel,r.RequiredSkill,v=>r.RequiredSkill=(int)v);
         Number(fields,"No skill gains at",2,1000000,r.NoSkillUp,v=>r.NoSkillUp=(int)v);
         Number(fields,"Mastery XP per craft",0,int.MaxValue,r.MasteryXp,v=>r.MasteryXp=(int)v);
-        Number(fields,"Mastery XP required (0 = disabled)",0,int.MaxValue,r.MasteryRequired,v=>r.MasteryRequired=(int)v);
+        Number(fields,"Bronze — total mastery XP",1,int.MaxValue,r.BronzeRequired,v=>r.BronzeRequired=(int)v);
+        Number(fields,"Silver — total mastery XP",1,int.MaxValue,r.SilverRequired,v=>r.SilverRequired=(int)v);
+        Number(fields,"Gold — total mastery XP",1,int.MaxValue,r.MasteryRequired,v=>r.MasteryRequired=(int)v);
         fields.Controls.Add(recipeSummary);
-        page.Controls.Add(Vertical(fields,BonusGrid(r.Bonuses))); detailTabs.TabPages.Add(page);
+        page.Controls.Add(Vertical(fields,BonusGrid(r.Bonuses,true))); detailTabs.TabPages.Add(page);
         page=new("Bonus outputs"); page.Controls.Add(Vertical(Label("One exclusive roll per successful craft. Chances total at most 100%; the remainder grants no bonus."),ItemGrid(r.BonusOutputs,()=>new BonusOutput(),8))); detailTabs.TabPages.Add(page);
         recipeDetail.Controls.Add(detailTabs); UpdateRecipeSummary();
     }
@@ -61,7 +63,7 @@ public sealed partial class CraftingMasteryEditor
     {
         if(selectedRecipe is not Recipe r || recipeSummary.IsDisposed) return;
         recipeSummary.Text=$"Skill bands (cap {catalog.SkillCap}): "+CraftingRules.Training(r,catalog.SkillCap)+"\r\n"+CraftingRules.MasteryEstimate(r)+
-            "\r\nMastery rewards are permanent character bonuses. Zero required XP needs zero XP/craft and an empty bonus list.";
+            $"\r\nBronze {r.BronzeRequired:N0} XP; Silver {r.SilverRequired:N0} XP; Gold {r.MasteryRequired:N0} XP. Each tier contributes one mastery point.\r\nTargets are cumulative. Each next rank must cost more additional XP. Bonuses add to earlier tiers; zero XP/craft pauses progression.";
     }
     private Control ItemGrid<T>(List<T> values,Func<T> create,int limit) where T:class
     {
@@ -90,12 +92,17 @@ public sealed partial class CraftingMasteryEditor
             Button("Where used",()=> { if(grid.CurrentRow?.DataBoundItem is T item) ShowText("Where used",string.Join("\r\n",catalog.WhereUsed(Id(item)))); })]);
         return Vertical(tools,grid);
     }
-    private Control BonusGrid(List<Bonus> bonuses)
+    private Control BonusGrid(List<Bonus> bonuses,bool tiered=false)
     {
         var source=new BindingList<Bonus>(bonuses); var grid=Grid(); detailGrids.Add(grid);
+        if(tiered) grid.Columns.Add(new DataGridViewComboBoxColumn { Name="Rank",DataPropertyName="Rank",HeaderText="Earned at",DataSource=new Dictionary<int,string>{{1,"Bronze"},{2,"Silver"},{3,"Gold"}}.ToList(),DisplayMember="Value",ValueMember="Key",FillWeight=75 });
         grid.Columns.Add(new DataGridViewComboBoxColumn { Name="Effect", DataPropertyName="Effect", HeaderText="Permanent bonus", DataSource=CraftingRules.Effects.ToList(), DisplayMember="Value", ValueMember="Key", FillWeight=160 });
         Column(grid,"Amount","Flat amount",70); grid.DataSource=source; ConfigureEditing(grid);
-        var tools=Flow(); tools.Controls.AddRange([Button("Add bonus",()=> { if(bonuses.Count>=8) return; int effect=CraftingRules.Effects.Keys.First(k=>bonuses.All(b=>b.Effect!=k)); source.Add(new Bonus { Effect=effect }); Changed(); }),Button("Remove bonus",()=> { if(grid.CurrentRow?.DataBoundItem is Bonus b) { source.Remove(b); Changed(); } })]);
+        var tools=Flow(); tools.Controls.AddRange([Button("Add bonus",()=> {
+            int rank=tiered?(grid.CurrentRow?.DataBoundItem as Bonus)?.Rank??1:3;
+            if(bonuses.Count(b=>!tiered||b.Rank==rank)>=8) {status.Text="This rank already has eight bonus effects.";return;}
+            int effect=CraftingRules.Effects.Keys.First(k=>bonuses.All(b=>(tiered&&b.Rank!=rank)||b.Effect!=k)); source.Add(new Bonus { Rank=rank,Effect=effect }); Changed();
+        }),Button("Remove bonus",()=> { if(grid.CurrentRow?.DataBoundItem is Bonus b) { source.Remove(b); Changed(); } })]);
         return Vertical(tools,grid);
     }
     private void ConfigureEditing(DataGridView grid)
@@ -141,7 +148,7 @@ public sealed partial class CraftingMasteryEditor
         var fields=Fields(); fields.Dock=DockStyle.Top; fields.AutoSize=true;
         fields.Controls.Add(Label($"Rank #{r.Id} — permanent identity; earned rank IDs are never revoked by changing thresholds."));
         TextField(fields,"Rank name",r.Name,v=>r.Name=v); Number(fields,"Display order",1,int.MaxValue,r.Order,v=>r.Order=(int)v);
-        Number(fields,"Recipes mastered to unlock",1,16384,r.RequiredMastered,v=>r.RequiredMastered=(int)v);
+        Number(fields,"Mastery points to unlock",1,98304,r.RequiredMastered,v=>r.RequiredMastered=(int)v);
         Check(fields,"Enabled — may be newly earned",r.Enabled,v=>r.Enabled=v);
         TextField(fields,"Emblem (.tex filename)",r.Emblem,v=>r.Emblem=v);
         var emblemRow=Flow(); emblemRow.Dock=DockStyle.None;
@@ -185,18 +192,20 @@ public sealed partial class CraftingMasteryEditor
         if(selected.Count==0) return;
         using var dialog=new Form { Text=$"Bulk edit {selected.Count} recipes", Size=new(540,390), StartPosition=FormStartPosition.CenterParent };
         var fields=Fields(); var field=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList, Width=420 };
-        field.Items.AddRange(["Craft time (milliseconds)","Mastery XP per craft","Mastery XP required","Minimum skill","No skill gains at","Set / add mastery bonus"]); field.SelectedIndex=0;
+        field.Items.AddRange(["Craft time (milliseconds)","Mastery XP per craft","Gold total mastery XP","Minimum skill","No skill gains at","Set / add mastery bonus","Bronze total mastery XP","Silver total mastery XP"]); field.SelectedIndex=0;
         var value=new NumericUpDown { Maximum=int.MaxValue, Minimum=0, Value=10, Width=160 };
         var effect=new ComboBox { DataSource=CraftingRules.Effects.ToList(), DisplayMember="Value", ValueMember="Key", Width=270, DropDownStyle=ComboBoxStyle.DropDownList };
+        var tier=new ComboBox { DataSource=new Dictionary<int,string>{{1,"Bronze"},{2,"Silver"},{3,"Gold"}}.ToList(),DisplayMember="Value",ValueMember="Key",Width=150,DropDownStyle=ComboBoxStyle.DropDownList };tier.SelectedValue=3;
         var preview=new TextBox { Width=450, Height=140, Multiline=true, ReadOnly=true, ScrollBars=ScrollBars.Vertical };
         void Preview()=>preview.Text=string.Join("\r\n",selected.Select(r=>$"#{r.Id} {r.Name}: {field.Text} → {value.Value}"));
         value.ValueChanged+=(_,_)=>Preview(); field.SelectedIndexChanged+=(_,_)=>Preview(); Preview();
-        fields.Controls.AddRange([field,Label("New value"),value,Label("Effect (for bonus changes)"),effect,preview,Button("Apply to draft",()=>dialog.DialogResult=DialogResult.OK)]); dialog.Controls.Add(fields);
+        fields.Controls.AddRange([field,Label("New value"),value,Label("Effect and earned tier (for bonus changes)"),effect,tier,preview,Button("Apply to draft",()=>dialog.DialogResult=DialogResult.OK)]); dialog.Controls.Add(fields);
         if(dialog.ShowDialog(this)!=DialogResult.OK) return;
         foreach(var r in selected) switch(field.SelectedIndex) {
             case 0:r.CraftTimeMs=(int)value.Value;break; case 1:r.MasteryXp=(int)value.Value;break; case 2:r.MasteryRequired=(int)value.Value;break;
             case 3:r.RequiredSkill=(int)value.Value;break;case 4:r.NoSkillUp=(int)value.Value;break;
-            case 5:int key=(int)effect.SelectedValue!; var b=r.Bonuses.FirstOrDefault(b=>b.Effect==key); if(b==null) r.Bonuses.Add(new() { Effect=key,Amount=(int)value.Value }); else b.Amount=(int)value.Value;break;
+            case 5:int key=(int)effect.SelectedValue!,rank=(int)tier.SelectedValue!; var b=r.Bonuses.FirstOrDefault(b=>b.Effect==key&&b.Rank==rank); if(b==null) r.Bonuses.Add(new() { Rank=rank,Effect=key,Amount=(int)value.Value }); else b.Amount=(int)value.Value;break;
+            case 6:r.BronzeRequired=(int)value.Value;break;case 7:r.SilverRequired=(int)value.Value;break;
         }
         Changed(); ShowRecipe();
     }
@@ -206,12 +215,13 @@ public sealed partial class CraftingMasteryEditor
         var text=new StringBuilder();
         foreach(var p in Enum.GetValues<Profession>()) {
             var rows=catalog.Recipes.Where(r=>r.Enabled && r.Profession==p).ToList();
-            text.AppendLine($"{p}: {rows.Count} enabled recipes; {rows.Count(r=>r.MasteryRequired>0)} mastery recipes");
+            text.AppendLine($"{p}: {rows.Count} enabled recipes; {3*rows.Count(r=>r.MasteryXp>0)} obtainable mastery points");
             var gaps=Enumerable.Range(1,catalog.SkillCap-1).Where(s=>!rows.Any(r=>CraftingRules.Chance(r,s,catalog.SkillCap)>0));
             text.AppendLine("  Skill levels without a training recipe: "+string.Join(", ",gaps));
         }
-        text.AppendLine("\r\nAll obtainable recipe + rank bonuses (including retained retired rewards):");
-        text.AppendLine(CraftingRules.Rewards(catalog.Recipes.SelectMany(r=>r.Bonuses).Concat(catalog.Ranks.SelectMany(r=>r.Bonuses))));
+        foreach(var group in catalog.Gathering.GroupBy(r=>r.ProfessionName))text.AppendLine($"{group.Key}: {group.Count()} resources; {3*group.Count(r=>r.MasteryXp>0)} obtainable mastery points");
+        text.AppendLine("\r\nAll obtainable crafting, gathering and Master Rank bonuses (including retained retired rewards):");
+        text.AppendLine(CraftingRules.Rewards(catalog.Recipes.SelectMany(r=>r.Bonuses).Concat(catalog.Gathering.SelectMany(r=>r.Bonuses)).Concat(catalog.Ranks.SelectMany(r=>r.Bonuses))));
         text.AppendLine("\r\nValidation:"); var issues=CraftingRules.Validate(catalog);
         text.AppendLine(issues.Count==0?"No issues.":string.Join("\r\n",issues));
         ShowText("Crafting catalogue overview",text.ToString());

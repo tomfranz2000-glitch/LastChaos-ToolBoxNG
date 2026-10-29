@@ -8,7 +8,8 @@ public static class CraftingItemReferences
         ("t_crafting_recipe", "a_output_item", "output"),
         ("t_crafting_ingredient", "a_item_index", "ingredient"),
         ("t_crafting_manual", "a_manual_item", "teaching item"),
-        ("t_crafting_bonus_output", "a_item_index", "bonus output")];
+        ("t_crafting_bonus_output", "a_item_index", "bonus output"),
+        ("t_gathering_material", "a_item_index", "gathering mastery")];
 
     public static bool HasSchema(MySqlConnection db)
     {
@@ -25,6 +26,12 @@ public static class CraftingItemReferences
         if (!HasSchema(db)) return [];
         List<string> result = [];
         foreach (var use in Uses) {
+            if(use.Table=="t_gathering_material") {
+                using var resource=new MySqlCommand($"SELECT COALESCE(i.a_name_{locale},'Missing resource item') FROM t_gathering_material u LEFT JOIN t_item i ON i.a_index=u.a_item_index WHERE u.a_item_index=@item",db);
+                resource.Parameters.AddWithValue("@item",item);var name=resource.ExecuteScalar();
+                if(name is not null)result.Add($"Gathering resource #{item} {name} — mastery");
+                continue;
+            }
             string id = use.Table == "t_crafting_recipe" ? "a_index" : "a_recipe_index";
             using var cmd = new MySqlCommand($"SELECT u.{id},COALESCE(i.a_name_{locale},'Missing output item') FROM {use.Table} u JOIN t_crafting_recipe r ON r.a_index=u.{id} LEFT JOIN t_item i ON i.a_index=r.a_output_item WHERE u.{use.Field}=@item ORDER BY u.{id}", db);
             cmd.Parameters.AddWithValue("@item", item);
