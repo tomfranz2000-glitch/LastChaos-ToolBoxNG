@@ -7,7 +7,8 @@ namespace LastChaos_ToolBoxNG.Crafting;
 public sealed class CraftingRepository(string connectionString, string locale)
 {
     public static readonly string[] Tables = ["t_crafting_settings", "t_crafting_recipe", "t_crafting_ingredient", "t_crafting_manual",
-        "t_crafting_bonus_output", "t_crafting_mastery", "t_crafting_mastery_bonus", "t_crafting_master_rank", "t_crafting_master_rank_bonus"];
+        "t_crafting_bonus_output", "t_crafting_mastery", "t_crafting_mastery_bonus", "t_crafting_master_rank", "t_crafting_master_rank_bonus",
+        "t_gathering_material", "t_gathering_material_bonus"];
     private readonly string language = Regex.IsMatch(locale, "^[a-z]+$") ? locale : throw new ArgumentException("Invalid item locale.");
     public CraftingCatalog Load()
     {
@@ -45,7 +46,13 @@ public sealed class CraftingRepository(string connectionString, string locale)
         Rows(db, tx, "SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", Tables.Select(t => "'" + t + "'")) + ")", r => found[r.GetString(0)] = r.GetString(1));
         if (Tables.Any(t => !found.TryGetValue(t, out string? e) || e != "InnoDB"))
-            throw new InvalidOperationException("Crafting requires all nine InnoDB content tables. Apply the game's crafting migrations through 0018; this editor never creates or changes schema.");
+            throw new InvalidOperationException("Crafting and gathering mastery require eleven InnoDB content tables. Apply the game's migrations through 0036; this editor never creates or changes schema.");
+        try {
+            Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_crafting_mastery LIMIT 0",_=>{});
+            Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_gathering_material LIMIT 0",_=>{});
+            Rows(db,tx,"SELECT a_rank FROM t_crafting_mastery_bonus LIMIT 0",_=>{});
+            Rows(db,tx,"SELECT a_rank FROM t_gathering_material_bonus LIMIT 0",_=>{});
+        } catch(MySqlException e) when(e.Number is 1054 or 1146) { throw new InvalidOperationException("Apply game migration 0036 before editing three-rank mastery.",e); }
         // Hold metadata locks until commit; never let a concurrent ALTER swap in
         // nontransactional storage between validation and the first write.
         using var triggers = new MySqlCommand("SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE IN (" +
@@ -75,10 +82,17 @@ public sealed class CraftingRepository(string connectionString, string locale)
         Rows(db, tx, Lock("SELECT a_recipe_index,a_slot,a_item_index,a_count,a_chance FROM t_crafting_bonus_output ORDER BY a_recipe_index,a_slot"), r => {
             var recipe=recipes[r.GetInt32(0)]; CheckSlot(recipe.BonusOutputs.Count,r.GetInt32(1));
             recipe.BonusOutputs.Add(new() { ItemId=r.GetInt32(2), Quantity=r.GetInt32(3), ChancePercent=r.GetInt32(4)/100m }); });
-        Rows(db, tx, Lock("SELECT a_recipe_index,a_exp_per_craft,a_exp_required FROM t_crafting_mastery ORDER BY a_recipe_index"), r => {
-            var recipe=recipes[r.GetInt32(0)]; recipe.MasteryXp=r.GetInt32(1); recipe.MasteryRequired=r.GetInt32(2); });
-        Rows(db, tx, Lock("SELECT a_recipe_index,a_slot,a_option_type,a_value FROM t_crafting_mastery_bonus ORDER BY a_recipe_index,a_slot"), r => {
-            var recipe=recipes[r.GetInt32(0)]; CheckSlot(recipe.Bonuses.Count,r.GetInt32(1)); recipe.Bonuses.Add(new() { Effect=r.GetInt32(2), Amount=r.GetInt32(3) }); });
+        var masteryIds=new HashSet<int>();
+        Rows(db, tx, Lock("SELECT a_recipe_index,a_exp_per_craft,a_exp_required,a_bronze_xp_required,a_silver_xp_required FROM t_crafting_mastery ORDER BY a_recipe_index"), r => {
+            var recipe=recipes[r.GetInt32(0)];masteryIds.Add(recipe.Id); recipe.MasteryXp=r.GetInt32(1); recipe.MasteryRequired=r.GetInt32(2); recipe.BronzeRequired=r.GetInt32(3); recipe.SilverRequired=r.GetInt32(4); });
+        if(masteryIds.Count!=recipes.Count)throw new InvalidOperationException("Every recipe needs three authored mastery targets. Apply migration 0036 or restore the missing mastery definitions.");
+        Rows(db, tx, Lock("SELECT a_recipe_index,a_rank,a_slot,a_option_type,a_value FROM t_crafting_mastery_bonus ORDER BY a_recipe_index,a_rank,a_slot"), r => {
+            var recipe=recipes[r.GetInt32(0)]; int rank=r.GetInt32(1); CheckSlot(recipe.Bonuses.Count(b=>b.Rank==rank),r.GetInt32(2)); recipe.Bonuses.Add(new() { Rank=rank,Effect=r.GetInt32(3), Amount=r.GetInt32(4) }); });
+        Rows(db,tx,Lock("SELECT a_item_index,a_exp_per_item,a_exp_required,a_profession,a_bronze_xp_required,a_silver_xp_required FROM t_gathering_material ORDER BY a_item_index"),r=>c.Gathering.Add(new() {
+            ItemId=r.GetInt32(0),MasteryXp=r.GetInt32(1),MasteryRequired=r.GetInt32(2),Profession=r.GetInt32(3),BronzeRequired=r.GetInt32(4),SilverRequired=r.GetInt32(5) }));
+        var resources=c.Gathering.ToDictionary(r=>r.ItemId);
+        Rows(db,tx,Lock("SELECT a_item_index,a_rank,a_slot,a_option_type,a_value FROM t_gathering_material_bonus ORDER BY a_item_index,a_rank,a_slot"),r=> {
+            var resource=resources[r.GetInt32(0)];int rank=r.GetInt32(1);CheckSlot(resource.Bonuses.Count(b=>b.Rank==rank),r.GetInt32(2));resource.Bonuses.Add(new(){Rank=rank,Effect=r.GetInt32(3),Amount=r.GetInt32(4)}); });
         Rows(db, tx, Lock("SELECT a_index,a_order,a_name,a_required_mastered,a_emblem,a_enable FROM t_crafting_master_rank ORDER BY a_index"), r => c.Ranks.Add(new() {
             Id=r.GetInt32(0), Order=r.GetInt32(1), Name=r.GetString(2), RequiredMastered=r.GetInt32(3), Emblem=r.GetString(4), Enabled=r.GetBoolean(5) }));
         var ranks=c.Ranks.ToDictionary(r => r.Id);
@@ -101,7 +115,8 @@ public sealed class CraftingRepository(string connectionString, string locale)
             CheckSchema(db,tx);
             var current=Read(db,tx,true);
             if(current.Fingerprint()!=original.Fingerprint()) throw new InvalidOperationException("Crafting data changed in another editor. Your draft is retained. Reload and reapply your edits before saving.");
-            if(original.Recipes.Any(r=>!edited.Recipes.Any(n=>n.Id==r.Id)) || original.Ranks.Any(r=>!edited.Ranks.Any(n=>n.Id==r.Id)))
+            if(original.Recipes.Any(r=>!edited.Recipes.Any(n=>n.Id==r.Id)) || original.Ranks.Any(r=>!edited.Ranks.Any(n=>n.Id==r.Id))
+                || original.Gathering.Any(r=>!edited.Gathering.Any(n=>n.ItemId==r.ItemId)))
                 throw new InvalidOperationException("Published IDs cannot be removed or renumbered. Retire the definition instead.");
             edited.Items=current.Items;
             var errors=CraftingRules.Validate(edited).Where(i=>i.Error).ToList();
@@ -115,8 +130,17 @@ public sealed class CraftingRepository(string connectionString, string locale)
                 for(int i=0;i<r.Ingredients.Count;i++) Execute(db,tx,"INSERT INTO t_crafting_ingredient(a_recipe_index,a_slot,a_item_index,a_count) VALUES(@p0,@p1,@p2,@p3)",r.Id,i,r.Ingredients[i].ItemId,r.Ingredients[i].Quantity);
                 foreach(var m in r.Manuals.OrderBy(m=>m.ItemId)) Execute(db,tx,"INSERT INTO t_crafting_manual(a_manual_item,a_recipe_index) VALUES(@p0,@p1)",m.ItemId,r.Id);
                 for(int i=0;i<r.BonusOutputs.Count;i++) Execute(db,tx,"INSERT INTO t_crafting_bonus_output(a_recipe_index,a_slot,a_item_index,a_count,a_chance) VALUES(@p0,@p1,@p2,@p3,@p4)",r.Id,i,r.BonusOutputs[i].ItemId,r.BonusOutputs[i].Quantity,(int)(r.BonusOutputs[i].ChancePercent*100));
-                if(r.MasteryRequired>0) Execute(db,tx,"INSERT INTO t_crafting_mastery(a_recipe_index,a_exp_per_craft,a_exp_required) VALUES(@p0,@p1,@p2)",r.Id,r.MasteryXp,r.MasteryRequired);
-                WriteBonuses(db,tx,"t_crafting_mastery_bonus",r.Id,r.Bonuses);
+                Execute(db,tx,"INSERT INTO t_crafting_mastery(a_recipe_index,a_exp_per_craft,a_exp_required,a_bronze_xp_required,a_silver_xp_required) VALUES(@p0,@p1,@p2,@p3,@p4)",r.Id,r.MasteryXp,r.MasteryRequired,r.BronzeRequired,r.SilverRequired);
+                WriteTierBonuses(db,tx,"t_crafting_mastery_bonus","a_recipe_index",r.Id,r.Bonuses);
+            }
+            foreach(var r in edited.Gathering) {
+                var old=original.Gathering.FirstOrDefault(o=>o.ItemId==r.ItemId);
+                if(old is null) throw new InvalidOperationException("Add gathering resources through their source catalog before editing their mastery here.");
+                if(System.Text.Json.JsonSerializer.Serialize(old)==System.Text.Json.JsonSerializer.Serialize(r))continue;
+                if(old.Profession!=r.Profession || old.Enabled!=r.Enabled) throw new InvalidOperationException("A published resource's profession and source availability cannot be changed in the mastery editor.");
+                Execute(db,tx,"UPDATE t_gathering_material SET a_exp_per_item=@p0,a_exp_required=@p1,a_bronze_xp_required=@p2,a_silver_xp_required=@p3 WHERE a_item_index=@p4",r.MasteryXp,r.MasteryRequired,r.BronzeRequired,r.SilverRequired,r.ItemId);
+                Execute(db,tx,"DELETE FROM t_gathering_material_bonus WHERE a_item_index=@p0",r.ItemId);
+                WriteTierBonuses(db,tx,"t_gathering_material_bonus","a_item_index",r.ItemId,r.Bonuses);
             }
             // UNIQUE(a_order) requires temporary unused positive orders when
             // swapping rows; they are never visible outside this transaction.
@@ -138,5 +162,13 @@ public sealed class CraftingRepository(string connectionString, string locale)
     {
         string key=table=="t_crafting_mastery_bonus"?"a_recipe_index":"a_rank_index";
         for(int i=0;i<bonuses.Count;i++) Execute(db,tx,$"INSERT INTO {table}({key},a_slot,a_option_type,a_value) VALUES(@p0,@p1,@p2,@p3)",id,i,bonuses[i].Effect,bonuses[i].Amount);
+    }
+    private static void WriteTierBonuses(MySqlConnection db,MySqlTransaction tx,string table,string key,int id,List<Bonus> bonuses)
+    {
+        for(int rank=1;rank<=3;rank++) {
+            int slot=0;
+            foreach(var bonus in bonuses.Where(b=>b.Rank==rank).OrderBy(b=>b.Effect))
+                Execute(db,tx,$"INSERT INTO {table}({key},a_rank,a_slot,a_option_type,a_value) VALUES(@p0,@p1,@p2,@p3,@p4)",id,rank,slot++,bonus.Effect,bonus.Amount);
+        }
     }
 }

@@ -8,7 +8,7 @@ namespace LastChaos_ToolBoxNG.Crafting;
 public enum Profession { Smithing, Alchemy, Cooking }
 public sealed class Ingredient { public int ItemId { get; set; } public int Quantity { get; set; } = 1; }
 public sealed class TeachingItem { public int ItemId { get; set; } }
-public sealed class Bonus { public int Effect { get; set; } = 4; public int Amount { get; set; } = 1; }
+public sealed class Bonus { public int Effect { get; set; } = 4; public int Amount { get; set; } = 1; public int Rank { get; set; } = 3; }
 public sealed class BonusOutput
 {
     public int ItemId { get; set; }
@@ -27,19 +27,34 @@ public sealed class Recipe
     public int SortOrder { get; set; }
     public bool Enabled { get; set; } = true;
     public bool RequiresUnlock { get; set; }
-    public int MasteryXp { get; set; }
-    public int MasteryRequired { get; set; }
+    public int MasteryXp { get; set; } = 10;
+    public int MasteryRequired { get; set; } = 300;
+    public int BronzeRequired { get; set; } = 50;
+    public int SilverRequired { get; set; } = 150;
     public List<Ingredient> Ingredients { get; set; } = [];
     public List<TeachingItem> Manuals { get; set; } = [];
     public List<Bonus> Bonuses { get; set; } = [];
     public List<BonusOutput> BonusOutputs { get; set; } = [];
     [JsonIgnore] public string Name { get; set; } = "Choose an output item";
 }
+public sealed class GatheringResource
+{
+    public int ItemId { get; set; }
+    public int Profession { get; set; }
+    public int MasteryXp { get; set; }
+    public int BronzeRequired { get; set; }
+    public int SilverRequired { get; set; }
+    public int MasteryRequired { get; set; }
+    public bool Enabled { get; set; } = true;
+    public List<Bonus> Bonuses { get; set; } = [];
+    [JsonIgnore] public string Name { get; set; } = "";
+    [JsonIgnore] public string ProfessionName => Profession switch { 1=>"Mining",2=>"Herbalism",3=>"Fishing",4=>"Wave Absorption",_=>"Unknown" };
+}
 public sealed class MastersRank
 {
     public int Id { get; set; }
     public int Order { get; set; }
-    public string Name { get; set; } = "New rank";
+    public string Name { get; set; } = "New Artisan Rank";
     public int RequiredMastered { get; set; } = 1;
     public string Emblem { get; set; } = "AchievementCategory_2001.tex";
     public bool Enabled { get; set; } = true;
@@ -57,13 +72,19 @@ public sealed class CraftingCatalog
     public int SkillCap { get; set; } = 50;
     public List<Recipe> Recipes { get; set; } = [];
     public List<MastersRank> Ranks { get; set; } = [];
+    public List<GatheringResource> Gathering { get; set; } = [];
     [JsonIgnore] public Dictionary<int, CraftingItem> Items { get; set; } = [];
     public static T Copy<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value))!;
-    public string Fingerprint() => JsonSerializer.Serialize(new {
-        SkillCap, Recipes = Recipes.OrderBy(r => r.Id), Ranks = Ranks.OrderBy(r => r.Id)
-    });
+    public string Fingerprint() {
+        var copy=Copy(this);
+        static List<Bonus> Ordered(List<Bonus> bonuses)=>bonuses.OrderBy(b=>b.Rank).ThenBy(b=>b.Effect).ToList();
+        foreach(var r in copy.Recipes) r.Bonuses=Ordered(r.Bonuses);
+        foreach(var r in copy.Gathering) r.Bonuses=Ordered(r.Bonuses);
+        foreach(var r in copy.Ranks) r.Bonuses=Ordered(r.Bonuses);
+        return JsonSerializer.Serialize(new {copy.SkillCap,Recipes=copy.Recipes.OrderBy(r=>r.Id),Ranks=copy.Ranks.OrderBy(r=>r.Id),Gathering=copy.Gathering.OrderBy(r=>r.ItemId)});
+    }
     public string ItemName(int id) => Items.TryGetValue(id, out var item) ? item.Name : $"Missing item #{id}";
-    public void UpdateNames() { foreach (var r in Recipes) r.Name = ItemName(r.OutputItem); }
+    public void UpdateNames() { foreach (var r in Recipes) r.Name = ItemName(r.OutputItem); foreach(var r in Gathering) r.Name=ItemName(r.ItemId); }
     public IEnumerable<string> WhereUsed(int item) => Recipes.SelectMany(r => {
         var uses = new List<string>();
         if (r.OutputItem == item) uses.Add("output");
@@ -71,7 +92,7 @@ public sealed class CraftingCatalog
         if (r.Manuals.Any(i => i.ItemId == item)) uses.Add("teaches");
         if (r.BonusOutputs.Any(i => i.ItemId == item)) uses.Add("bonus output");
         return uses.Select(u => $"#{r.Id} {ItemName(r.OutputItem)} — {u}{(r.Enabled ? "" : " (retired)")}");
-    });
+    }).Concat(Gathering.Where(r=>r.ItemId==item).Select(r=>$"{r.ProfessionName} resource #{r.ItemId} — mastery"));
 }
 public sealed record CraftingIssue(bool Error, string Target, string Message)
 {
@@ -118,6 +139,8 @@ public static class CraftingRules
         return $"From zero: {crafts:N0} crafts • {crafts * r.CraftTimeMs / 1000m:N1} seconds\r\n" +
             string.Join(", ", r.Ingredients.Select(i => $"item {i.ItemId} × {crafts * i.Quantity:N0}"));
     }
+    public static string TierName(int rank) => rank switch { 1=>"Bronze",2=>"Silver",3=>"Gold",_=>"Invalid" };
+    public static bool ValidThresholds(int bronze,int silver,int gold) => bronze>0 && (long)silver-bronze>bronze && (long)gold-silver>(long)silver-bronze;
     public static string Rewards(IEnumerable<Bonus> bonuses) => string.Join(", ", bonuses.GroupBy(b => b.Effect)
         .Select(g => $"+{g.Sum(b => (long)b.Amount):N0} {Effects.GetValueOrDefault(g.Key, $"Unknown effect {g.Key}")}"));
     public static List<CraftingIssue> Validate(CraftingCatalog c)
@@ -126,8 +149,9 @@ public static class CraftingRules
         void Error(string t, string m) => issues.Add(new(true, t, m));
         void Note(string t, string m) => issues.Add(new(false, t, m));
         var totals = new long[20];
-        void Bonuses(string t, List<Bonus> bs) {
-            if (bs.Count > 8 || bs.Select(b => b.Effect).Distinct().Count() != bs.Count) Error(t, "Use at most eight distinct bonus effects.");
+        void Bonuses(string t, List<Bonus> bs,bool tiered=false) {
+            if (tiered ? bs.Any(b=>b.Rank is <1 or >3) || bs.GroupBy(b=>b.Rank).Any(g=>g.Count()>8 || g.Select(b=>b.Effect).Distinct().Count()!=g.Count())
+                : bs.Count > 8 || bs.Select(b => b.Effect).Distinct().Count() != bs.Count) Error(t, "Use at most eight distinct bonus effects per rank.");
             foreach (var b in bs) {
                 if (!Effects.ContainsKey(b.Effect) || b.Amount is < 1 or > 32767) Error(t, "Bonuses need a supported flat effect and amount 1–32767.");
                 foreach (int channel in Channels(b.Effect)) totals[channel] += b.Amount;
@@ -148,9 +172,9 @@ public static class CraftingRules
             if (r.Enabled && r.RequiredSkill > c.SkillCap) Note(t, $"Requires skill {r.RequiredSkill}, above the configured cap {c.SkillCap}. New characters cannot reach this requirement yet.");
             if (r.Ingredients.Count > 10 || (r.Enabled && r.Ingredients.Count == 0) || r.Ingredients.Any(i => i.ItemId <= 0 || i.Quantity <= 0 || i.ItemId == r.OutputItem) || r.Ingredients.Select(i => i.ItemId).Distinct().Count() != r.Ingredients.Count) Error(t, "Use 1–10 different ingredients with positive quantities; output cannot also be an ingredient.");
             if (r.Manuals.Count > 8 || r.Manuals.Any(i => i.ItemId <= 0) || r.Manuals.Select(i => i.ItemId).Distinct().Count() != r.Manuals.Count || (!r.RequiresUnlock && r.Manuals.Count != 0) || (r.Enabled && r.RequiresUnlock && r.Manuals.Count == 0)) Error(t, "A learned recipe needs 1–8 distinct teaching items; automatic recipes have none.");
-            if (r.MasteryXp < 0 || r.MasteryRequired < 0 || (r.MasteryRequired == 0 && (r.MasteryXp != 0 || r.Bonuses.Count != 0))) Error(t, "Disabled mastery must have zero XP and no bonuses.");
+            if (r.MasteryXp < 0 || !ValidThresholds(r.BronzeRequired,r.SilverRequired,r.MasteryRequired)) Error(t, "All three mastery targets are required. Each tier must cost more additional XP than the previous tier.");
             if (r.MasteryRequired > 0 && r.MasteryXp == 0) Note(t, "Mastery is enabled but this recipe awards no XP.");
-            Bonuses(t, r.Bonuses);
+            Bonuses(t, r.Bonuses,true);
             if (r.BonusOutputs.Count > 8 || r.BonusOutputs.Select(b => b.ItemId).Distinct().Count() != r.BonusOutputs.Count || r.BonusOutputs.Sum(b => Math.Clamp(b.ChancePercent, 0m, 101m)) > 100 || r.BonusOutputs.Any(b => b.ItemId <= 0 || b.Quantity <= 0 || b.ChancePercent <= 0 || b.ChancePercent > 100 || decimal.Round(b.ChancePercent, 2) != b.ChancePercent || b.ItemId == r.OutputItem || r.Ingredients.Any(i => i.ItemId == b.ItemId))) Error(t, "Use up to eight different bonus outputs; chances have two decimals and total at most 100%. Bonus items cannot be the output or ingredients.");
             if (!r.Enabled) continue;
             Item(t, r.OutputItem, r.OutputQuantity, true);
@@ -160,19 +184,26 @@ public static class CraftingRules
                 if (!c.Items.TryGetValue(m.ItemId, out var i) || !i.Enabled || !i.Manual || i.Timed) Error(t, $"Teaching item {m.ItemId} must be an enabled, non-timed manual (Once subtype 1, 2 or 4).");
             }
         }
-        if (c.Ranks.Count > MaxRanks || c.Ranks.Select(r => r.Id).Distinct().Count() != c.Ranks.Count) Error("Ranks", "Use at most 64 ranks with distinct permanent IDs.");
+        if (c.Ranks.Count > MaxRanks || c.Ranks.Select(r => r.Id).Distinct().Count() != c.Ranks.Count) Error("Artisan Ranks", "Use at most 64 Artisan Ranks with distinct permanent IDs.");
         int order = 0, threshold = 0;
-        int available = c.Recipes.Count(r => r.Enabled && r.MasteryRequired > 0 && r.MasteryXp > 0);
+        foreach(var r in c.Gathering) {
+            string t=$"Gathering item {r.ItemId}";
+            if(r.ItemId<=0 || r.Profession is <1 or >4 || r.MasteryXp<0 || !ValidThresholds(r.BronzeRequired,r.SilverRequired,r.MasteryRequired)) Error(t,"Invalid gathering identity, XP or tier targets. Each tier must cost more additional XP.");
+            if(r.Enabled && !c.Items.ContainsKey(r.ItemId)) Error(t,"Resource item does not exist.");
+            Bonuses(t,r.Bonuses,true);
+        }
+        if(c.Gathering.Count>64 || c.Gathering.Select(r=>r.ItemId).Distinct().Count()!=c.Gathering.Count) Error("Gathering","Use at most 64 distinct resource IDs.");
+        int available = 3*(c.Recipes.Count(r => r.Enabled && r.MasteryXp > 0)+c.Gathering.Count(r=>r.Enabled && r.MasteryXp>0));
         foreach (var r in c.Ranks.OrderBy(r => r.Order)) {
-            string t = $"Rank {r.Id}";
-            if (r.Id <= 0 || r.Order <= order || r.RequiredMastered <= threshold || r.RequiredMastered > 16384) Error(t, "Rank order and mastered-recipe thresholds must increase strictly (maximum threshold 16384).");
+            string t = $"Artisan Rank {r.Id}";
+            if (r.Id <= 0 || r.Order <= order || r.RequiredMastered <= threshold || r.RequiredMastered > 98304) Error(t, "Artisan Rank order and mastery-point thresholds must increase strictly (maximum threshold 98304).");
             order = r.Order; threshold = r.RequiredMastered;
             if (string.IsNullOrWhiteSpace(r.Name) || Encoding.UTF8.GetByteCount(r.Name) > 63 || r.Name.Any(ch => char.IsControl(ch) || ch is '\u2028' or '\u2029') || !ValidUtf8(r.Name)) Error(t, "Name must be single-line valid UTF-8, 1–63 bytes.");
             if (r.Emblem.Length > 63 || !Regex.IsMatch(r.Emblem, "^[A-Za-z0-9_-]+[.]tex$")) Error(t, "Emblem must be a .tex filename in Data/Interface (maximum 63 ASCII characters).");
-            if (r.Enabled && r.RequiredMastered > available) Note(t, $"Needs {r.RequiredMastered} mastered recipes; only {available} are currently available. Historical mastery still counts.");
+            if (r.Enabled && r.RequiredMastered > available) Note(t, $"Needs {r.RequiredMastered} mastery points; {available} are currently available across crafting and gathering. Historical ranks still count.");
             Bonuses(t, r.Bonuses);
         }
-        if (totals.Any(v => v > 32767)) Error("Bonuses", "Combined recipe and rank bonuses exceed 32767 in a stat channel, including overlapping All/Physical effects and retired definitions.");
+        if (totals.Any(v => v > 32767)) Error("Bonuses", "Combined crafting, gathering and Artisan Rank bonuses exceed 32767 in a stat channel, including overlapping All/Physical effects and retired definitions.");
         return issues;
     }
     private static bool ValidUtf8(string text) { try { new UTF8Encoding(false, true).GetBytes(text); return true; } catch (EncoderFallbackException) { return false; } }

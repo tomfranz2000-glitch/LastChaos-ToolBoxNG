@@ -26,18 +26,23 @@ internal static class Program
         using var connection = new MySqlConnection(Connection); db = connection; db.Open();
         Exec("CREATE TABLE ep4_db.t_characters(a_index INT PRIMARY KEY,a_crafting_smithing TINYINT UNSIGNED NOT NULL DEFAULT 1,a_crafting_alchemy TINYINT UNSIGNED NOT NULL DEFAULT 1,CONSTRAINT chk_crafting_smithing CHECK(a_crafting_smithing BETWEEN 1 AND 50),CONSTRAINT chk_crafting_alchemy CHECK(a_crafting_alchemy BETWEEN 1 AND 50),a_crafting_stat_points INT NOT NULL,CONSTRAINT chk_crafting_stat_points CHECK(a_crafting_stat_points BETWEEN 0 AND 98)) ENGINE=InnoDB;");
         foreach (string filename in Directory.GetFiles(Path.Combine(game, "x64-server/db/migrations"), "*.sql").Where(p => int.TryParse(Path.GetFileName(p)[..4], out int n) && n is >= 13 and <= 18).Order()) Exec(File.ReadAllText(filename));
+        // Minimal real gathering schemas satisfy the actual coordinated tier migration.
+        Exec(File.ReadAllText(Path.Combine(game,"x64-server/db/migrations/0023-gathering-material-mastery.sql")));
+        Exec("ALTER TABLE ep4_data.t_gathering_material ADD a_profession INT NOT NULL DEFAULT 1, ADD CONSTRAINT fixture_profession CHECK(a_profession BETWEEN 1 AND 4)");
+        ExecScript(File.ReadAllText(Path.Combine(game,"x64-server/db/migrations/0036-three-tier-mastery.sql")));
         Exec("USE ep4_data; CREATE TABLE t_item(a_index INT PRIMARY KEY,a_name_usa VARCHAR(100),a_enable INT,a_type_idx INT,a_subtype_idx INT,a_flag BIGINT,a_weight INT,a_texture_id INT,a_texture_row INT,a_texture_col INT) ENGINE=InnoDB;");
         foreach (string table in CraftingRepository.Tables) Exec(File.ReadAllText(Path.Combine(game, "x64-server/db/seeds/ep4_data", table + ".sql")));
-        Exec("INSERT INTO t_item SELECT item,CONCAT('Fixture item ',item),1,4,0,1,2147483647,0,0,0 FROM (SELECT a_output_item item FROM t_crafting_recipe UNION SELECT a_item_index FROM t_crafting_ingredient UNION SELECT a_manual_item FROM t_crafting_manual UNION SELECT a_item_index FROM t_crafting_bonus_output) refs; UPDATE t_item SET a_type_idx=2,a_subtype_idx=1 WHERE a_index IN(SELECT a_manual_item FROM t_crafting_manual);");
+        Exec("INSERT INTO t_item SELECT item,CONCAT('Fixture item ',item),1,4,0,1,2147483647,0,0,0 FROM (SELECT a_output_item item FROM t_crafting_recipe UNION SELECT a_item_index FROM t_crafting_ingredient UNION SELECT a_manual_item FROM t_crafting_manual UNION SELECT a_item_index FROM t_crafting_bonus_output UNION SELECT a_item_index FROM t_gathering_material) refs; UPDATE t_item SET a_type_idx=2,a_subtype_idx=1 WHERE a_index IN(SELECT a_manual_item FROM t_crafting_manual);");
         Run("current authored catalogue loads and validates", () => {
-            var c = Repository.Load(); Check(c.Recipes.Count > 600, "Expected the converted manuals.");
+            var c = Repository.Load(); Check(c.Recipes.Count == 646 && c.Gathering.Count == 14, "Expected every tracked recipe and gathering resource.");
+            Check(c.Gathering.Select(r=>r.Profession).Distinct().Order().SequenceEqual(new[]{1,2,3,4}),"Missing gathering profession.");
             Check(!CraftingRules.Validate(c).Any(i => i.Error), string.Join("\n", CraftingRules.Validate(c)));
             File.WriteAllText(Path.Combine(output, "catalogue-counts.txt"), $"{c.Recipes.Count} recipes; {c.Ranks.Count} ranks\n");
         });
         Exec("INSERT INTO t_item VALUES (200001,'Healing meal',1,4,0,1,9999,0,0,0),(200002,'Herb',1,4,0,1,9999,0,0,0),(200003,'Recipe book',1,2,1,1,9999,0,0,0),(200004,'Bonus powder',1,4,0,1,9999,0,0,0),(200005,'Second recipe book',1,2,4,1,9999,0,0,0);");
-        Exec("INSERT INTO ep4_db.t_crafting_mastery VALUES(7,1,20,1); INSERT INTO ep4_db.t_crafting_master_rank VALUES(7,1); INSERT INTO ep4_db.t_crafting_recipe_unlock VALUES(7,1);");
+        Exec("INSERT INTO ep4_db.t_crafting_mastery VALUES(7,1,20,1,3); INSERT INTO ep4_db.t_gathering_mastery VALUES(7,156,200,0,1); INSERT INTO ep4_db.t_crafting_master_rank VALUES(7,1); INSERT INTO ep4_db.t_crafting_recipe_unlock VALUES(7,1);");
 
-        Run("all nine content tables round-trip including Cooking", () => {
+        Run("all eleven content tables round-trip including Cooking", () => {
             Reset(); var empty = Repository.Load(); var c = Sample(); Repository.Save(empty, c);
             Check(Repository.Load().Fingerprint() == c.Fingerprint(), "Round-trip differs.");
             Check(Scalar("SELECT a_chance FROM t_crafting_bonus_output") == "1234", "Percentage precision lost.");
@@ -59,6 +64,35 @@ internal static class Program
             Check(Repository.Load().SkillCap==25,"Rejected cap changed the database.");
             Exec("DELETE FROM t_crafting_settings"); Reject(()=>Repository.Load(),"settings are missing");
             Exec("INSERT INTO t_crafting_settings VALUES(1,50)");
+        });
+        Run("three-tier recipe and gathering targets rewards concurrency and preservation", () => {
+            SeedSample();var basis=Repository.Load();var edit=CraftingCatalog.Copy(basis);
+            edit.Recipes[0].Bonuses=[new(){Rank=1,Effect=102,Amount=10},new(){Rank=2,Effect=102,Amount=20},new(){Rank=3,Effect=102,Amount=30}];
+            var resource=edit.Gathering.Single(r=>r.ItemId==156);resource.MasteryXp=17;resource.BronzeRequired=150;resource.SilverRequired=450;
+            resource.Bonuses=[new(){Rank=1,Effect=11,Amount=2},new(){Rank=2,Effect=11,Amount=3},new(){Rank=3,Effect=11,Amount=5}];
+            Repository.Save(basis,edit);var reloaded=Repository.Load();Check(reloaded.Fingerprint()==edit.Fingerprint(),"Tier round-trip changed values.");
+            Check(Scalar("SELECT GROUP_CONCAT(CONCAT(a_rank,':',a_slot,':',a_value) ORDER BY a_rank) FROM t_gathering_material_bonus WHERE a_item_index=156")=="1:0:2,2:0:3,3:0:5","Gathering rewards lost rank or contiguous slot.");
+            Reject(()=>Repository.Save(basis,basis),"another editor");
+            Check(Scalar("SELECT CONCAT(a_exp,':',a_rank) FROM ep4_db.t_gathering_mastery")=="200:1","Editor changed player gathering tiers.");
+            Check(CraftingItemReferences.Read(Connection,156).Any(r=>r.Contains("Gathering resource")),"Gathering reference lookup omitted resource.");
+            Reject(()=>Batch(CraftingItemReferences.DeleteGuard("ep4_data",156)+"DELETE FROM t_item WHERE a_index=156;"),"constraint");
+            var invalid=CraftingCatalog.Copy(reloaded);invalid.Recipes[0].SilverRequired=31;Invalid(invalid,"additional XP");
+            invalid=CraftingCatalog.Copy(reloaded);invalid.Gathering[0].SilverRequired=200;Invalid(invalid,"additional XP");
+            invalid=CraftingCatalog.Copy(reloaded);invalid.Gathering[0].Bonuses.Add(new(){Rank=1,Effect=11,Amount=1});Invalid(invalid,"distinct");
+            invalid=CraftingCatalog.Copy(reloaded);invalid.Gathering[0].Profession=2;Reject(()=>Repository.Save(reloaded,invalid),"profession");
+            invalid=CraftingCatalog.Copy(reloaded);invalid.Gathering.RemoveAt(0);Reject(()=>Repository.Save(reloaded,invalid),"Published IDs");
+            Repository.WithLockedCatalog((snapshot,identity)=> {
+                using var other=new MySqlConnection(Connection);other.Open();using var timeout=new MySqlCommand("SET innodb_lock_wait_timeout=1",other);timeout.ExecuteNonQuery();
+                Reject(()=>{using var update=new MySqlCommand("UPDATE t_gathering_material SET a_exp_per_item=99 WHERE a_item_index=156",other);update.ExecuteNonQuery();},"Lock wait timeout");
+            });
+        });
+        Run("eight rewards per tier round-trip without cross-tier collisions", () => {
+            SeedSample();var basis=Repository.Load();var draft=CraftingCatalog.Copy(basis);
+            List<Bonus> Full()=>Enumerable.Range(1,3).SelectMany(rank=>Enumerable.Range(0,8).Select(effect=>new Bonus{Rank=rank,Effect=effect,Amount=1})).ToList();
+            draft.Recipes[0].Bonuses=Full();draft.Gathering[0].Bonuses=Full();Repository.Save(basis,draft);
+            Check(Repository.Load().Fingerprint()==draft.Fingerprint()&&Repository.Load().Gathering[0].Bonuses.Count==24,"Twenty-four rewards lost tiers or effects.");
+            var invalid=CraftingCatalog.Copy(draft);invalid.Recipes[0].Bonuses.Add(new(){Rank=1,Effect=8,Amount=1});Invalid(invalid,"eight distinct");
+            invalid=CraftingCatalog.Copy(draft);invalid.Gathering[0].Bonuses[0].Rank=4;Invalid(invalid,"eight distinct");
         });
         Run("exclusive output chance and item collisions are rejected", () => {
             var c = Sample(); c.Recipes[0].BonusOutputs.Add(new() { ItemId = 200005, ChancePercent = 99 });
@@ -150,14 +184,14 @@ internal static class Program
                 using var bitmap=CraftingEmblem.Read(path); Check(bitmap.GetPixel(2,2)==Color.FromArgb(255,255,0,0),"Wrong DXT pixel for flags "+flags);
             }
         });
-        Run("canonical seed exporter writes only the nine content files", () => {
+        Run("canonical seed exporter writes only the eleven content files", () => {
             SeedSample(); string checkout=Path.Combine(output,"export-checkout");
             Directory.CreateDirectory(Path.Combine(checkout,"x64-server/db/seeds/ep4_data")); Directory.CreateDirectory(Path.Combine(checkout,"x64-server/compose"));
             File.Copy(Path.Combine(game,"x64-server/db/export-seed.sh"),Path.Combine(checkout,"x64-server/db/export-seed.sh"),true);
             File.Copy(Path.Combine(Directory.GetCurrentDirectory(),"tests/CraftingVerification/compose.yml"),Path.Combine(checkout,"x64-server/compose/docker-compose.yml"),true);
             foreach(string table in CraftingRepository.Tables) File.Copy(Path.Combine(game,"x64-server/db/seeds/ep4_data",table+".sql"),Path.Combine(checkout,"x64-server/db/seeds/ep4_data",table+".sql"),true);
             var basis=Repository.Load(); CraftingSeedExport.Export(checkout,Connection,"usa",basis.Fingerprint());
-            Check(Directory.GetFiles(Path.Combine(checkout,"x64-server/db/seeds"),"*.sql",SearchOption.AllDirectories).Length==9,"Wrong exported scope.");
+            Check(Directory.GetFiles(Path.Combine(checkout,"x64-server/db/seeds"),"*.sql",SearchOption.AllDirectories).Length==11,"Wrong exported scope.");
             Reset(); foreach(string table in CraftingRepository.Tables) Exec(File.ReadAllText(Path.Combine(checkout,"x64-server/db/seeds/ep4_data",table+".sql")));
             Check(Repository.Load().Fingerprint()==basis.Fingerprint(),"Export/import round-trip changed data.");
             var before=File.ReadAllText(Path.Combine(checkout,"x64-server/db/seeds/ep4_data/t_crafting_recipe.sql"));
@@ -176,14 +210,26 @@ internal static class Program
     static void Check(bool condition,string message) { if(!condition) throw new Exception(message); }
     static void Reject(Action action,string expected) { try { action(); } catch(Exception e) { Check(e.ToString().Contains(expected,StringComparison.OrdinalIgnoreCase),"Unexpected error: "+e); return; } throw new Exception("Expected rejection: "+expected); }
     static void Invalid(CraftingCatalog c,string message) => Check(CraftingRules.Validate(c).Any(i=>i.Error && i.Message.Contains(message,StringComparison.OrdinalIgnoreCase)),"Expected validation: "+message);
+    static void ExecScript(string sql)
+    {
+        string delimiter=";";var pending=new System.Text.StringBuilder();
+        foreach(string line in sql.Split('\n')) {
+            if(line.Trim().StartsWith("DELIMITER ")) { delimiter=line.Trim()[10..];continue; }
+            pending.AppendLine(line);
+            if(line.TrimEnd().EndsWith(delimiter,StringComparison.Ordinal)) {
+                string statement=pending.ToString().TrimEnd();Exec(statement[..^delimiter.Length]);pending.Clear();
+            }
+        }
+        if(!string.IsNullOrWhiteSpace(pending.ToString())) Exec(pending.ToString());
+    }
     static void Exec(string sql) { using var cmd=new MySqlCommand(sql,db); cmd.ExecuteNonQuery(); }
     static string Scalar(string sql) { using var cmd=new MySqlCommand(sql,db); return Convert.ToString(cmd.ExecuteScalar())!; }
-    static void Reset() { Exec("SET FOREIGN_KEY_CHECKS=0;"+string.Join(";",CraftingRepository.Tables.Select(t=>"TRUNCATE TABLE "+t))+";INSERT INTO t_crafting_settings VALUES(1,50);SET FOREIGN_KEY_CHECKS=1;"); }
+    static void Reset() { Exec("SET FOREIGN_KEY_CHECKS=0;"+string.Join(";",CraftingRepository.Tables.Where(t=>!t.StartsWith("t_gathering_")).Select(t=>"TRUNCATE TABLE "+t))+";INSERT INTO t_crafting_settings VALUES(1,50);SET FOREIGN_KEY_CHECKS=1;"); foreach(string table in new[]{"t_gathering_material","t_gathering_material_bonus"}) Exec(File.ReadAllText(Path.Combine(game,"x64-server/db/seeds/ep4_data",table+".sql"))); }
     static void SeedSample() { Reset(); Repository.Save(Repository.Load(),Sample()); }
     static CraftingCatalog Sample() => new() {
-        Items=Repository.Load().Items,
+        Items=Repository.Load().Items, Gathering=CraftingCatalog.Copy(Repository.Load().Gathering),
         Recipes=[new() { Id=1, Profession=Profession.Cooking, OutputItem=200001, OutputQuantity=2, CraftTimeMs=2500, RequiredSkill=1, NoSkillUp=31, SortOrder=10, RequiresUnlock=true,
-            Ingredients=[new() {ItemId=200002,Quantity=3}], Manuals=[new() {ItemId=200003}], MasteryXp=10, MasteryRequired=100,
+            Ingredients=[new() {ItemId=200002,Quantity=3}], Manuals=[new() {ItemId=200003}], MasteryXp=10, BronzeRequired=16, SilverRequired=50, MasteryRequired=100,
             Bonuses=[new() {Effect=102,Amount=50}], BonusOutputs=[new() {ItemId=200004,Quantity=1,ChancePercent=12.34m}] }],
         Ranks=[new() {Id=1,Order=1,Name="Master Cook",RequiredMastered=1,Bonuses=[new() {Effect=4,Amount=20}]},new() {Id=2,Order=2,Name="Grandmaster",RequiredMastered=10,Bonuses=[new() {Effect=5,Amount=10}]}]
     };
@@ -205,6 +251,7 @@ internal static class Program
         Check((bool)type.GetField("loaded",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!,"UI did not load fixture.");
         var tabs=(TabControl)type.GetField("tabs",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
         void Capture(string name) { Application.DoEvents(); using var bitmap=new Bitmap(editor.Width,editor.Height); editor.DrawToBitmap(bitmap,new(0,0,bitmap.Width,bitmap.Height)); bitmap.Save(Path.Combine(output,name+".png")); }
+        Check(tabs.TabPages[2].Text=="Artisan Ranks","Rank editor tab must use the independent Artisan Rank system name.");
         Capture("recipes");
         var detail=(Panel)type.GetField("recipeDetail",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
         var details=(TabControl)detail.Controls[0];
@@ -246,8 +293,20 @@ internal static class Program
         Check(manualGrid.EndEdit(),"Manual ID edit was rejected.");
         tabs.SelectedIndex=1; bookFilter.SelectedIndex=0; bookFilter.SelectedIndex=1;
         Check(teachingList.Rows.Count==1 && bookId.Value==200005 && Convert.ToInt32(teachingList.Rows[0].Cells["RecipeCount"].Value)==1,"The manual browser did not follow draft recipe assignments.");
+        bool beforeGatheringDirty=(bool)type.GetField("dirty",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
         tabs.SelectedIndex=3;
-        var cap=tabs.TabPages[3].Controls.Find("MaximumCraftingSkill",true).OfType<NumericUpDown>().Single();
+        var gatheringRows=(DataGridView)type.GetField("gatheringRows",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
+        var gatheringFilter=(ComboBox)type.GetField("gatheringProfession",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
+        Check(gatheringRows.Rows.Count==14,"Gathering tab must list all resource mastery entries.");
+        foreach(var pair in new[]{(1,1),(2,5),(3,3),(4,5)}) { gatheringFilter.SelectedIndex=pair.Item1;Check(gatheringRows.Rows.Count==pair.Item2,"Profession filter returned wrong resources."); }
+        gatheringFilter.SelectedIndex=1;
+        var gatherDetail=(Panel)type.GetField("gatheringDetail",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
+        var numeric=Descendants(gatherDetail).OfType<NumericUpDown>().ToArray();
+        Check(numeric.Length==4 && numeric[1].Value==166 && numeric[2].Value==500 && numeric[3].Value==1000,"Gathering tier targets not bound to database.");
+        Check((bool)type.GetField("dirty",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)! == beforeGatheringDirty,"Browsing gathering resources modified draft.");
+        numeric[0].Value=12;Capture("gathering-mastery");
+        tabs.SelectedIndex=4;
+        var cap=tabs.TabPages[4].Controls.Find("MaximumCraftingSkill",true).OfType<NumericUpDown>().Single();
         Check(cap.Value==50,"Settings did not load database cap."); cap.Value=300; Capture("settings");
         Check(((Label)type.GetField("recipeSummary",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!).Text.Contains("cap 300"),"Recipe preview retained old cap.");
         var save=(Task)type.GetMethod("SaveAsync",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(editor,null)!;
@@ -255,6 +314,7 @@ internal static class Program
         while(!save.IsCompleted && DateTime.UtcNow<deadline) { Application.DoEvents(); Thread.Sleep(20); }
         Check(save.IsCompletedSuccessfully && Repository.Load().Recipes[0].Manuals.Single().ItemId==200005,"The edited teaching association was not saved.");
         Check(Repository.Load().SkillCap==300,"Settings UI did not persist cap.");
+        Check(Repository.Load().Gathering.Single(r=>r.ItemId==156).MasteryXp==12,"Gathering UI did not persist resource edit.");
         tabs.SelectedIndex=2; Capture("ranks"); editor.Close();
     }
     static IEnumerable<Control> Descendants(Control parent)
