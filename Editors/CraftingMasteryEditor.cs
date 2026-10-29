@@ -85,12 +85,12 @@ public sealed partial class CraftingMasteryEditor : Form
         page=new("Teaching Items"); tabs.TabPages.Add(page);
         BuildTeachingItems(page);
 
-        page=new("Master's Ranks"); tabs.TabPages.Add(page);
+        page=new("Artisan Ranks"); tabs.TabPages.Add(page);
         var rankSplit=new SplitContainer { Size=new(1350,750), Dock=DockStyle.Fill, FixedPanel=FixedPanel.Panel1, Panel1MinSize=330, Panel2MinSize=580, SplitterDistance=430 };
         Shown+=(_,_)=>rankSplit.SplitterDistance=Math.Max(330,Math.Min(450,rankSplit.Width-585));
         page.Controls.Add(rankSplit);
-        var rankTools=Flow(); rankTools.Controls.AddRange([Button("New rank",()=>NewRank()),Button("Duplicate",()=>NewRank(true)),Button("Move up",()=>MoveRank(-1)),Button("Move down",()=>MoveRank(1)),Button("Discard new",()=>DiscardNewRank())]);
-        Column(ranks,"Order","Order",40); Column(ranks,"Name","Rank",140); Column(ranks,"RequiredMastered","Points",65);
+        var rankTools=Flow(); rankTools.Controls.AddRange([Button("New Artisan Rank",()=>NewRank()),Button("Duplicate",()=>NewRank(true)),Button("Move up",()=>MoveRank(-1)),Button("Move down",()=>MoveRank(1)),Button("Discard new",()=>DiscardNewRank())]);
+        Column(ranks,"Order","Order",40); Column(ranks,"Name","Artisan Rank",140); Column(ranks,"RequiredMastered","Points",65);
         rankSplit.Panel1.Controls.Add(Vertical(rankTools,ranks)); rankSplit.Panel2.Controls.Add(rankDetail);
         ranks.SelectionChanged+=(_,_)=> { if(binding || !CommitGrids()) return; selectedRank=ranks.CurrentRow?.DataBoundItem as MastersRank; ShowRank(); };
 
@@ -128,7 +128,7 @@ public sealed partial class CraftingMasteryEditor : Form
             catalog=result; original=CraftingCatalog.Copy(result); loaded=true; dirty=false; Text="Crafting & Mastery Editor";
             binding=true; maximumSkill.Value=catalog.SkillCap; binding=false;
             FilterRecipes(); RefreshRanks(); RefreshTeachingItems(); RefreshGathering();
-            status.Text=$"Loaded {catalog.Recipes.Count} recipes, {catalog.Gathering.Count} gathering resources and {catalog.Ranks.Count} Master Ranks. Reopen /craft or /gather to refresh authored data.";
+            status.Text=$"Loaded {catalog.Recipes.Count} recipes, {catalog.Gathering.Count} gathering resources and {catalog.Ranks.Count} Artisan Ranks. Reopen /craft, /gather or /artisan to refresh authored data.";
         });
     }
     private bool CommitGrids()

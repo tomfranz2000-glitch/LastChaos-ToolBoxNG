@@ -14,7 +14,7 @@ The desktop `Start-ToolBoxNG.cmd` launcher runs `artifacts/app/LastChaos ToolBox
 2. Add ingredients by ID or the existing item picker. Item names, icons, Open item and Where used are available for each row.
 3. In **Learning**, choose automatic availability or **Requires a teaching item**, then assign one or more enabled manual items. The **Teaching Items** tab can assign a single book to several recipes at once. Supported books are non-timed Once items with subtype 1, 2 or 4.
 4. Set minimum skill and the skill at which gains stop. The editor previews the game's derived 100% / 60% / 20% / 0% bands. Intermediate thresholds are not stored.
-5. Set mastery XP per craft and cumulative Bronze, Silver and Gold XP targets. Each successive rank must cost more additional XP than its predecessor. Assign up to eight permanent flat stat bonuses per tier; later tiers add their rewards to earlier ones. Zero XP per craft pauses progression without removing the required targets or earned rewards.
+5. Set mastery XP per craft and cumulative Bronze, Silver and Gold XP targets. Each successive tier must cost more additional XP than its predecessor. Assign up to eight permanent flat stat bonuses per tier; later tiers add their rewards to earlier ones. Zero XP per craft pauses progression without removing the required targets or earned rewards.
 6. Optional **Bonus outputs** preserve processing's random extras. This is one exclusive roll per craft, with up to eight outcomes and two decimal places of percentage precision. The unused percentage gives no extra item.
 7. **Save all changes** validates and commits the entire draft in one transaction.
 
@@ -32,9 +32,9 @@ Item Editor includes a **Crafting & Mastery** reference panel at the bottom of i
 
 Item definitions still use the normal item pipeline. New items or changes to item type, enabled state, stackability or stack limit must also reach the running game's item prototypes. Merely assigning an existing suitable item as a teaching book needs no item-data export. After editing item definitions, reload crafting before making further catalogue changes.
 
-## Master's Ranks
+## Artisan Ranks
 
-Create, duplicate, reorder or retire ranks. Each has a stable identity, unique display order, name, mastery-point threshold across crafting and gathering, emblem filename, and up to eight permanent bonuses. Every Bronze/Silver/Gold tier contributes one point (Gold is three total). Historical earned tiers still count. Cumulative rewards are shown for the selected Master Rank.
+Create, duplicate, reorder or retire ranks. Each has a stable identity, unique display order, name, mastery-point threshold across crafting and gathering, emblem filename, and up to eight permanent bonuses. Every Bronze/Silver/Gold tier contributes one point (Gold is three total). Historical earned tiers still count. Cumulative rewards are shown for the selected Artisan Rank. In game, `/artisan` opens its independent window; Character → Special Skills also provides a shortcut that can be placed on the action bar.
 
 **Move up/down** moves the rank identity and rewards while keeping thresholds attached to progression positions. Earned rank IDs remain earned. Directly editing the order/threshold is also possible; Save requires both to increase strictly across all ranks, including retired ones.
 
@@ -44,7 +44,7 @@ Changing a bonus changes the bonus for characters who already earned that master
 
 ## Gathering mastery
 
-Open **Gathering mastery**, then search by resource name or item ID and filter Mining, Herbalism, Fishing or Wave Absorption. Each existing resource exposes XP per awarded item, all three cumulative targets and its per-tier rewards. Bonuses add together; use the Earned at column to select Bronze, Silver or Gold. Each tier contributes one Master Rank point. Resource sources, loot, profession assignment and availability are maintained separately and cannot be reassigned by this mastery panel.
+Open **Gathering mastery**, then search by resource name or item ID and filter Mining, Herbalism, Fishing or Wave Absorption. Each existing resource exposes XP per awarded item, all three cumulative targets and its per-tier rewards. Bonuses add together; use the Earned at column to select Bronze, Silver or Gold. Each tier contributes one Artisan Rank point. Resource sources, loot, profession assignment and availability are maintained separately and cannot be reassigned by this mastery panel.
 
 ## Maximum crafting skill
 
@@ -76,7 +76,7 @@ Saves affect these eleven **authored content** tables only:
 
 The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All eleven tables must be InnoDB; unreviewed custom triggers are refused.
 
-For edits that use already deployed item definitions and artwork, reopen `/craft` for recipes and Master Ranks, or `/gather` for gathering resource mastery. No rebuild or server restart is needed for these catalogue changes. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
+For edits that use already deployed item definitions and artwork, reopen `/craft` for recipes, `/gather` for gathering resource mastery, or `/artisan` for Artisan Ranks. No rebuild or server restart is needed for these catalogue changes. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
 
 After Save, **Export mastery & crafting seeds** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these eleven tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
 
@@ -84,7 +84,7 @@ Review and commit the resulting `x64-server/db/seeds/ep4_data` diff. Export new 
 
 ## Existing engine limits
 
-The editor exposes authored data, not a new rules engine. Existing limits remain: 4,096 recipes, 64 ranks (both including retired entries), maximum supported skill 65,535, ten materials, eight teaching manuals, eight random outputs, eight distinct bonus effects per mastery tier (eight per Master Rank), and craft durations of 0.001–600 seconds. Supported bonuses are the game's flat effects 0–23 and HP/MP regeneration 102/103. Individual amounts and the combined total in each underlying stat channel may not exceed 32,767; overlapping All/Physical effects and retired rewards are included.
+The editor exposes authored data, not a new rules engine. Existing limits remain: 4,096 recipes, 64 ranks (both including retired entries), maximum supported skill 65,535, ten materials, eight teaching manuals, eight random outputs, eight distinct bonus effects per mastery tier (eight per Artisan Rank), and craft durations of 0.001–600 seconds. Supported bonuses are the game's flat effects 0–23 and HP/MP regeneration 102/103. Individual amounts and the combined total in each underlying stat channel may not exceed 32,767; overlapping All/Physical effects and retired rewards are included.
 
 The 100/60/20 chances and one stat point per crafting skill level are still engine rules. Changing those requires coordinated game code work.
 

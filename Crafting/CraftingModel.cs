@@ -54,7 +54,7 @@ public sealed class MastersRank
 {
     public int Id { get; set; }
     public int Order { get; set; }
-    public string Name { get; set; } = "New rank";
+    public string Name { get; set; } = "New Artisan Rank";
     public int RequiredMastered { get; set; } = 1;
     public string Emblem { get; set; } = "AchievementCategory_2001.tex";
     public bool Enabled { get; set; } = true;
@@ -172,7 +172,7 @@ public static class CraftingRules
             if (r.Enabled && r.RequiredSkill > c.SkillCap) Note(t, $"Requires skill {r.RequiredSkill}, above the configured cap {c.SkillCap}. New characters cannot reach this requirement yet.");
             if (r.Ingredients.Count > 10 || (r.Enabled && r.Ingredients.Count == 0) || r.Ingredients.Any(i => i.ItemId <= 0 || i.Quantity <= 0 || i.ItemId == r.OutputItem) || r.Ingredients.Select(i => i.ItemId).Distinct().Count() != r.Ingredients.Count) Error(t, "Use 1–10 different ingredients with positive quantities; output cannot also be an ingredient.");
             if (r.Manuals.Count > 8 || r.Manuals.Any(i => i.ItemId <= 0) || r.Manuals.Select(i => i.ItemId).Distinct().Count() != r.Manuals.Count || (!r.RequiresUnlock && r.Manuals.Count != 0) || (r.Enabled && r.RequiresUnlock && r.Manuals.Count == 0)) Error(t, "A learned recipe needs 1–8 distinct teaching items; automatic recipes have none.");
-            if (r.MasteryXp < 0 || !ValidThresholds(r.BronzeRequired,r.SilverRequired,r.MasteryRequired)) Error(t, "All three mastery targets are required. Each rank must cost more additional XP than the previous rank.");
+            if (r.MasteryXp < 0 || !ValidThresholds(r.BronzeRequired,r.SilverRequired,r.MasteryRequired)) Error(t, "All three mastery targets are required. Each tier must cost more additional XP than the previous tier.");
             if (r.MasteryRequired > 0 && r.MasteryXp == 0) Note(t, "Mastery is enabled but this recipe awards no XP.");
             Bonuses(t, r.Bonuses,true);
             if (r.BonusOutputs.Count > 8 || r.BonusOutputs.Select(b => b.ItemId).Distinct().Count() != r.BonusOutputs.Count || r.BonusOutputs.Sum(b => Math.Clamp(b.ChancePercent, 0m, 101m)) > 100 || r.BonusOutputs.Any(b => b.ItemId <= 0 || b.Quantity <= 0 || b.ChancePercent <= 0 || b.ChancePercent > 100 || decimal.Round(b.ChancePercent, 2) != b.ChancePercent || b.ItemId == r.OutputItem || r.Ingredients.Any(i => i.ItemId == b.ItemId))) Error(t, "Use up to eight different bonus outputs; chances have two decimals and total at most 100%. Bonus items cannot be the output or ingredients.");
@@ -184,26 +184,26 @@ public static class CraftingRules
                 if (!c.Items.TryGetValue(m.ItemId, out var i) || !i.Enabled || !i.Manual || i.Timed) Error(t, $"Teaching item {m.ItemId} must be an enabled, non-timed manual (Once subtype 1, 2 or 4).");
             }
         }
-        if (c.Ranks.Count > MaxRanks || c.Ranks.Select(r => r.Id).Distinct().Count() != c.Ranks.Count) Error("Ranks", "Use at most 64 ranks with distinct permanent IDs.");
+        if (c.Ranks.Count > MaxRanks || c.Ranks.Select(r => r.Id).Distinct().Count() != c.Ranks.Count) Error("Artisan Ranks", "Use at most 64 Artisan Ranks with distinct permanent IDs.");
         int order = 0, threshold = 0;
         foreach(var r in c.Gathering) {
             string t=$"Gathering item {r.ItemId}";
-            if(r.ItemId<=0 || r.Profession is <1 or >4 || r.MasteryXp<0 || !ValidThresholds(r.BronzeRequired,r.SilverRequired,r.MasteryRequired)) Error(t,"Invalid gathering identity, XP or rank targets. Each rank must cost more additional XP.");
+            if(r.ItemId<=0 || r.Profession is <1 or >4 || r.MasteryXp<0 || !ValidThresholds(r.BronzeRequired,r.SilverRequired,r.MasteryRequired)) Error(t,"Invalid gathering identity, XP or tier targets. Each tier must cost more additional XP.");
             if(r.Enabled && !c.Items.ContainsKey(r.ItemId)) Error(t,"Resource item does not exist.");
             Bonuses(t,r.Bonuses,true);
         }
         if(c.Gathering.Count>64 || c.Gathering.Select(r=>r.ItemId).Distinct().Count()!=c.Gathering.Count) Error("Gathering","Use at most 64 distinct resource IDs.");
         int available = 3*(c.Recipes.Count(r => r.Enabled && r.MasteryXp > 0)+c.Gathering.Count(r=>r.Enabled && r.MasteryXp>0));
         foreach (var r in c.Ranks.OrderBy(r => r.Order)) {
-            string t = $"Rank {r.Id}";
-            if (r.Id <= 0 || r.Order <= order || r.RequiredMastered <= threshold || r.RequiredMastered > 98304) Error(t, "Rank order and mastery-point thresholds must increase strictly (maximum threshold 98304).");
+            string t = $"Artisan Rank {r.Id}";
+            if (r.Id <= 0 || r.Order <= order || r.RequiredMastered <= threshold || r.RequiredMastered > 98304) Error(t, "Artisan Rank order and mastery-point thresholds must increase strictly (maximum threshold 98304).");
             order = r.Order; threshold = r.RequiredMastered;
             if (string.IsNullOrWhiteSpace(r.Name) || Encoding.UTF8.GetByteCount(r.Name) > 63 || r.Name.Any(ch => char.IsControl(ch) || ch is '\u2028' or '\u2029') || !ValidUtf8(r.Name)) Error(t, "Name must be single-line valid UTF-8, 1–63 bytes.");
             if (r.Emblem.Length > 63 || !Regex.IsMatch(r.Emblem, "^[A-Za-z0-9_-]+[.]tex$")) Error(t, "Emblem must be a .tex filename in Data/Interface (maximum 63 ASCII characters).");
             if (r.Enabled && r.RequiredMastered > available) Note(t, $"Needs {r.RequiredMastered} mastery points; {available} are currently available across crafting and gathering. Historical ranks still count.");
             Bonuses(t, r.Bonuses);
         }
-        if (totals.Any(v => v > 32767)) Error("Bonuses", "Combined crafting, gathering and Master Rank bonuses exceed 32767 in a stat channel, including overlapping All/Physical effects and retired definitions.");
+        if (totals.Any(v => v > 32767)) Error("Bonuses", "Combined crafting, gathering and Artisan Rank bonuses exceed 32767 in a stat channel, including overlapping All/Physical effects and retired definitions.");
         return issues;
     }
     private static bool ValidUtf8(string text) { try { new UTF8Encoding(false, true).GetBytes(text); return true; } catch (EncoderFallbackException) { return false; } }

@@ -251,6 +251,7 @@ internal static class Program
         Check((bool)type.GetField("loaded",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!,"UI did not load fixture.");
         var tabs=(TabControl)type.GetField("tabs",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
         void Capture(string name) { Application.DoEvents(); using var bitmap=new Bitmap(editor.Width,editor.Height); editor.DrawToBitmap(bitmap,new(0,0,bitmap.Width,bitmap.Height)); bitmap.Save(Path.Combine(output,name+".png")); }
+        Check(tabs.TabPages[2].Text=="Artisan Ranks","Rank editor tab must use the independent Artisan Rank system name.");
         Capture("recipes");
         var detail=(Panel)type.GetField("recipeDetail",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
         var details=(TabControl)detail.Controls[0];

@@ -49,6 +49,6 @@ public sealed partial class CraftingMasteryEditor
     private void UpdateGatheringSummary()
     {
         if(selectedGathering is not GatheringResource r||gatheringSummary is null||gatheringSummary.IsDisposed)return;
-        gatheringSummary.Text=$"Additional XP: Bronze {r.BronzeRequired:N0}; Silver {(long)r.SilverRequired-r.BronzeRequired:N0}; Gold {(long)r.MasteryRequired-r.SilverRequired:N0}.\r\nEach tier contributes one mastery point. Rewards add to earlier tiers. Zero XP pauses progression.";
+        gatheringSummary.Text=$"Additional XP: Bronze {r.BronzeRequired:N0}; Silver {(long)r.SilverRequired-r.BronzeRequired:N0}; Gold {(long)r.MasteryRequired-r.SilverRequired:N0}.\r\nEach tier contributes one Artisan Rank point. Rewards add to earlier tiers. Zero XP pauses progression.";
     }
 }

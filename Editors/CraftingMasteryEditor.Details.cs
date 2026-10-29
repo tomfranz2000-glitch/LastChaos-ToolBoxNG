@@ -144,11 +144,11 @@ public sealed partial class CraftingMasteryEditor
     private void ShowRank()
     {
         ClearPanel(rankDetail); detailGrids.RemoveAll(g=>g.IsDisposed);
-        if(selectedRank is not MastersRank r) { rankDetail.Controls.Add(Label("Add a rank to define its threshold and rewards.")); return; }
+        if(selectedRank is not MastersRank r) { rankDetail.Controls.Add(Label("Add an Artisan Rank to define its threshold and rewards.")); return; }
         var fields=Fields(); fields.Dock=DockStyle.Top; fields.AutoSize=true;
-        fields.Controls.Add(Label($"Rank #{r.Id} — permanent identity; earned rank IDs are never revoked by changing thresholds."));
-        TextField(fields,"Rank name",r.Name,v=>r.Name=v); Number(fields,"Display order",1,int.MaxValue,r.Order,v=>r.Order=(int)v);
-        Number(fields,"Mastery points to unlock",1,98304,r.RequiredMastered,v=>r.RequiredMastered=(int)v);
+        fields.Controls.Add(Label($"Artisan Rank #{r.Id} — permanent identity; earned rank IDs are never revoked by changing thresholds."));
+        TextField(fields,"Artisan Rank name",r.Name,v=>r.Name=v); Number(fields,"Display order",1,int.MaxValue,r.Order,v=>r.Order=(int)v);
+        Number(fields,"Artisan Rank points to unlock",1,98304,r.RequiredMastered,v=>r.RequiredMastered=(int)v);
         Check(fields,"Enabled — may be newly earned",r.Enabled,v=>r.Enabled=v);
         TextField(fields,"Emblem (.tex filename)",r.Emblem,v=>r.Emblem=v);
         var emblemRow=Flow(); emblemRow.Dock=DockStyle.None;
@@ -215,12 +215,12 @@ public sealed partial class CraftingMasteryEditor
         var text=new StringBuilder();
         foreach(var p in Enum.GetValues<Profession>()) {
             var rows=catalog.Recipes.Where(r=>r.Enabled && r.Profession==p).ToList();
-            text.AppendLine($"{p}: {rows.Count} enabled recipes; {3*rows.Count(r=>r.MasteryXp>0)} obtainable mastery points");
+            text.AppendLine($"{p}: {rows.Count} enabled recipes; {3*rows.Count(r=>r.MasteryXp>0)} obtainable Artisan Rank points");
             var gaps=Enumerable.Range(1,catalog.SkillCap-1).Where(s=>!rows.Any(r=>CraftingRules.Chance(r,s,catalog.SkillCap)>0));
             text.AppendLine("  Skill levels without a training recipe: "+string.Join(", ",gaps));
         }
-        foreach(var group in catalog.Gathering.GroupBy(r=>r.ProfessionName))text.AppendLine($"{group.Key}: {group.Count()} resources; {3*group.Count(r=>r.MasteryXp>0)} obtainable mastery points");
-        text.AppendLine("\r\nAll obtainable crafting, gathering and Master Rank bonuses (including retained retired rewards):");
+        foreach(var group in catalog.Gathering.GroupBy(r=>r.ProfessionName))text.AppendLine($"{group.Key}: {group.Count()} resources; {3*group.Count(r=>r.MasteryXp>0)} obtainable Artisan Rank points");
+        text.AppendLine("\r\nAll obtainable crafting, gathering and Artisan Rank bonuses (including retained retired rewards):");
         text.AppendLine(CraftingRules.Rewards(catalog.Recipes.SelectMany(r=>r.Bonuses).Concat(catalog.Gathering.SelectMany(r=>r.Bonuses)).Concat(catalog.Ranks.SelectMany(r=>r.Bonuses))));
         text.AppendLine("\r\nValidation:"); var issues=CraftingRules.Validate(catalog);
         text.AppendLine(issues.Count==0?"No issues.":string.Join("\r\n",issues));
