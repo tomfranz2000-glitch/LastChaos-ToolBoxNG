@@ -8,7 +8,7 @@ public sealed partial class CraftingMasteryEditor : Form
     private readonly CraftingRepository repository;
     private CraftingCatalog catalog = new(), original = new();
     private bool loaded, dirty, busy, binding;
-    private readonly TabControl tabs = new() { Dock = DockStyle.Fill };
+    private readonly TabControl tabs = new ContentPages() { Dock = DockStyle.Fill };
     private readonly DataGridView recipes = Grid(true), ranks = Grid(true);
     private readonly Panel recipeDetail = new() { Dock = DockStyle.Fill }, rankDetail = new() { Dock = DockStyle.Fill };
     private readonly TextBox search = new() { Width = 230, PlaceholderText = "Name, recipe, item or manual ID" };
@@ -31,13 +31,13 @@ public sealed partial class CraftingMasteryEditor : Form
     {
         main=host; initialItem=teachingItem;
         repository=new(ConnectionString(host), host.pSettings.WorkLocale);
-        Name="CraftingMasteryEditor"; Text="Crafting & Mastery Editor";
+        Name="CraftingMasteryEditor"; Text="Professions Editor";
         AutoScaleMode=AutoScaleMode.Dpi; MinimumSize=new(1100,720); Size=new(1420,900);
         Font=new Font("Segoe UI",9);
         StartPosition=FormStartPosition.CenterParent;
         BuildLayout();
-        Load+=async (_,_)=> { await ReloadAsync(false); if(initialItem>0) { bookItem.Value=initialItem; tabs.SelectedIndex=1; } };
-        FormClosing+=(_,e)=> { if(busy || (dirty && MessageBox.Show(this,"Discard unsaved crafting changes?","Crafting & Mastery",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)) e.Cancel=true; };
+        Load+=async (_,_)=> { await ReloadAsync(false); if(initialItem>0) NavigateInitialItem(initialItem); };
+        FormClosing+=(_,e)=> { if(busy || (dirty && MessageBox.Show(this,"Discard unsaved profession changes?","Professions",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)) e.Cancel=true; };
         FormClosed+=(_,_)=> { foreach(var image in icons.Values) image?.Dispose(); };
     }
     internal static string ConnectionString(Main host) => new MySqlConnectionStringBuilder {
@@ -46,7 +46,7 @@ public sealed partial class CraftingMasteryEditor : Form
     }.ConnectionString;
     private static FlowLayoutPanel Flow() => new() { Dock=DockStyle.Top, AutoSize=true, WrapContents=true, Padding=new(4) };
     private static Button Button(string text, Action click) { var b=new Button { Text=text, AutoSize=true, MinimumSize=new(82,30) }; b.Click+=(_,_)=>click(); return b; }
-    private static Label Label(string text) => new() { Text=text, AutoSize=true, Margin=new(5,9,8,5) };
+    private static Label Label(string text) => new() { Text=text, UseMnemonic=false, AutoSize=true, Margin=new(5,9,8,5) };
     private static DataGridView Grid(bool readOnly=false) => new() {
         Dock=DockStyle.Fill, AutoGenerateColumns=false, AllowUserToAddRows=false, AllowUserToDeleteRows=false,
         ReadOnly=readOnly, SelectionMode=DataGridViewSelectionMode.FullRowSelect, MultiSelect=readOnly,
@@ -58,6 +58,7 @@ public sealed partial class CraftingMasteryEditor : Form
     private static TableLayoutPanel Vertical(params Control[] controls)
     {
         var p=new TableLayoutPanel { Dock=DockStyle.Fill, ColumnCount=1, RowCount=controls.Length, Padding=new(8) };
+        p.ColumnStyles.Add(new(SizeType.Percent,100));
         for(int i=0;i<controls.Length;i++) { p.RowStyles.Add(new(i==controls.Length-1?SizeType.Percent:SizeType.AutoSize,i==controls.Length-1?100:0)); p.Controls.Add(controls[i],0,i); }
         return p;
     }
@@ -65,10 +66,11 @@ public sealed partial class CraftingMasteryEditor : Form
     {
         var toolbar=Flow();
         toolbar.Controls.AddRange([Button("Save all changes",async ()=>await SaveAsync()),Button("Revert / Reload",async ()=>await ReloadAsync(true)),
-            Button("Validate / Overview",()=>Overview()),Button("Export mastery & crafting seeds",async ()=>await ExportAsync())]);
+            Button("Validate / Overview",()=>Overview()),Button("Export profession content",async ()=>await ExportAsync())]);
         var root=new TableLayoutPanel { Dock=DockStyle.Fill, ColumnCount=1, RowCount=3 };
+        root.ColumnStyles.Add(new(SizeType.Percent,100));
         root.RowStyles.Add(new(SizeType.AutoSize)); root.RowStyles.Add(new(SizeType.Percent,100)); root.RowStyles.Add(new(SizeType.Absolute,42));
-        root.Controls.Add(toolbar,0,0); root.Controls.Add(tabs,0,1); root.Controls.Add(status,0,2); Controls.Add(root);
+        root.Controls.Add(toolbar,0,0); root.Controls.Add(BuildNavigationHost(),0,1); root.Controls.Add(status,0,2); Controls.Add(root);
         var page=new TabPage("Recipes"); tabs.TabPages.Add(page);
         var split=new SplitContainer { Size=new(1350,750), Dock=DockStyle.Fill, FixedPanel=FixedPanel.Panel1, Panel1MinSize=330, Panel2MinSize=580, SplitterDistance=430 };
         Shown+=(_,_)=>split.SplitterDistance=Math.Max(330,Math.Min(450,split.Width-585));
@@ -80,7 +82,7 @@ public sealed partial class CraftingMasteryEditor : Form
         Column(recipes,"Id","ID",40); Column(recipes,"Name","Output",150); Column(recipes,"Profession","Profession",65); Column(recipes,"RequiredSkill","Skill",35);
         split.Panel1.Controls.Add(Vertical(filters,actions,recipes)); split.Panel2.Controls.Add(recipeDetail);
         search.TextChanged+=(_,_)=>FilterRecipes(); profession.SelectedIndexChanged+=(_,_)=>FilterRecipes(); availability.SelectedIndexChanged+=(_,_)=>FilterRecipes();
-        recipes.SelectionChanged+=(_,_)=> { if(binding) return; if(!CommitGrids()) return; selectedRecipe=recipes.CurrentRow?.DataBoundItem as Recipe; ShowRecipe(); };
+        recipes.CurrentCellChanged+=(_,_)=> { if(binding) return; if(!CommitGrids()) return; selectedRecipe=recipes.CurrentRow?.DataBoundItem as Recipe; ShowRecipe(); };
 
         page=new("Teaching Items"); tabs.TabPages.Add(page);
         BuildTeachingItems(page);
@@ -92,7 +94,7 @@ public sealed partial class CraftingMasteryEditor : Form
         var rankTools=Flow(); rankTools.Controls.AddRange([Button("New Artisan Rank",()=>NewRank()),Button("Duplicate",()=>NewRank(true)),Button("Move up",()=>MoveRank(-1)),Button("Move down",()=>MoveRank(1)),Button("Discard new",()=>DiscardNewRank())]);
         Column(ranks,"Order","Order",40); Column(ranks,"Name","Artisan Rank",140); Column(ranks,"RequiredMastered","Points",65);
         rankSplit.Panel1.Controls.Add(Vertical(rankTools,ranks)); rankSplit.Panel2.Controls.Add(rankDetail);
-        ranks.SelectionChanged+=(_,_)=> { if(binding || !CommitGrids()) return; selectedRank=ranks.CurrentRow?.DataBoundItem as MastersRank; ShowRank(); };
+        ranks.CurrentCellChanged+=(_,_)=> { if(binding || !CommitGrids()) return; selectedRank=ranks.CurrentRow?.DataBoundItem as MastersRank; ShowRank(); };
 
         BuildGatheringMastery();
 
@@ -103,15 +105,16 @@ public sealed partial class CraftingMasteryEditor : Form
         capRow.Controls.AddRange([Label("Maximum crafting skill"),maximumSkill]); settings.Controls.Add(capRow);
         settings.Controls.Add(Label("Shared by Smithing, Alchemy and Cooking. Save, then close and reopen /craft to refresh.\r\nLowering this cap preserves earned levels and stat points; characters at or above it stop gaining skill.\r\nRecipe skill requirements and no-gain levels remain independent. Raising the cap does not extend a recipe's training range."));
         maximumSkill.ValueChanged+=(_,_)=> { if(binding || !loaded) return; catalog.SkillCap=(int)maximumSkill.Value; Changed(); };
+        BuildProfessionPages(); BuildHomePage(); BuildNavigationTree();
     }
     private void Changed()
     {
         if(binding) return;
-        dirty=true; Text="Crafting & Mastery Editor *";
-        catalog.UpdateNames(); recipes.Refresh(); ranks.Refresh(); gatheringRows.Refresh(); RefreshTeachingItems(); UpdateRecipeSummary(); UpdateRankSummary(); UpdateGatheringSummary();
+        dirty=true; Text="Professions Editor *";
+        catalog.UpdateNames(); recipes.Refresh(); ranks.Refresh(); gatheringRows.Refresh(); RefreshTeachingItems(); UpdateRecipeSummary(); UpdateRankSummary(); UpdateGatheringSummary(); RefreshHome();
         status.Text="Unsaved changes. Save validates and commits the complete draft. Retired definitions retain earned bonuses; edited bonuses affect existing masters.";
     }
-    private void Error(Exception e) { status.Text=e.Message; MessageBox.Show(this,e.Message,"Crafting & Mastery",MessageBoxButtons.OK,MessageBoxIcon.Error); }
+    private void Error(Exception e) { status.Text=e.Message; MessageBox.Show(this,e.Message,"Professions",MessageBoxButtons.OK,MessageBoxIcon.Error); }
     private async Task RunAsync(Func<Task> action)
     {
         if(busy) return;
@@ -125,10 +128,10 @@ public sealed partial class CraftingMasteryEditor : Form
         await RunAsync(async ()=> {
             var result=await Task.Run(repository.Load);
             foreach(var image in icons.Values) image?.Dispose(); icons.Clear();
-            catalog=result; original=CraftingCatalog.Copy(result); loaded=true; dirty=false; Text="Crafting & Mastery Editor";
+            catalog=result; original=CraftingCatalog.Copy(result); loaded=true; dirty=false; Text="Professions Editor";
             binding=true; maximumSkill.Value=catalog.SkillCap; binding=false;
-            FilterRecipes(); RefreshRanks(); RefreshTeachingItems(); RefreshGathering();
-            status.Text=$"Loaded {catalog.Recipes.Count} recipes, {catalog.Gathering.Count} gathering resources and {catalog.Ranks.Count} Artisan Ranks. Reopen /craft, /gather or /artisan to refresh authored data.";
+            FilterRecipes(); RefreshRanks(); RefreshTeachingItems(); RefreshGathering(); RefreshProfessionPages(); RefreshHome();
+            status.Text=$"Loaded {catalog.Recipes.Count} recipes, {catalog.Gathering.Count} gathering resources and {catalog.Ranks.Count} Artisan Ranks. Choose a profession; the Overview apply guide explains how changes reach the game.";
         });
     }
     private bool CommitGrids()
@@ -148,10 +151,11 @@ public sealed partial class CraftingMasteryEditor : Form
             // A successful COMMIT is final even if a later reload is unavailable.
             foreach(var r in draft.Recipes) r.Manuals=r.Manuals.OrderBy(m=>m.ItemId).ToList();
             foreach(var r in catalog.Recipes) r.Manuals.Sort((a,b)=>a.ItemId.CompareTo(b.ItemId));
-            catalog.Items=draft.Items;
-            original=draft; dirty=false; Text="Crafting & Mastery Editor";
-            RefreshTeachingItems();
-            status.Text="Saved all changes. Close and reopen /craft or /gather to refresh. Export the content seeds to record these edits in Git.";
+            catalog.Items=draft.Items; catalog.Professions=draft.Professions; catalog.UpdateNames();
+            original=draft; dirty=false; Text="Professions Editor";
+            RefreshTeachingItems(); RefreshProfessionPages(); RefreshHome();
+            status.Text="Saved profession content. Review the Apply changes guide for reload/restart steps; export content to record it in Git.";
+            ShowApplyGuide(basis,draft);
         });
     }
     private void FilterRecipes(int? select=null)

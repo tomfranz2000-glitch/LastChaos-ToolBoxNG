@@ -11,10 +11,10 @@ public partial class ItemEditor
     private void InitializeCraftingLinks(int item, bool copy)
     {
         initialCraftingItem = item; copyCraftingItem = copy;
-        var group = new GroupBox { Text = "Crafting & Mastery — saved recipe references (including retired)",
+        var group = new GroupBox { Text = "Professions — saved item references (including retired)",
             Location = new(12, GeneralPanel.Controls.Cast<Control>().Select(c => c.Bottom).DefaultIfEmpty().Max() + 12), Size = new(700,180) };
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 36 };
-        var open = new Button { Text = "Recipes taught / Assign recipes", AutoSize = true };
+        var open = new Button { Text = "Open in Professions Editor", AutoSize = true };
         open.Click += (_, _) => { if (pTempItemRow != null) new CraftingMasteryEditor(pMain, Convert.ToInt32(pTempItemRow["a_index"])).Show(this); };
         var refresh = new Button { Text = "Refresh references", AutoSize = true };
         refresh.Click += (_, _) => RefreshCraftingLinks();
@@ -42,7 +42,7 @@ public partial class ItemEditor
             string locale=pMain.pSettings.WorkLocale;
             var references = await Task.Run(() => CraftingItemReferences.Read(connection, id, locale));
             if (IsDisposed || generation != craftingReferenceGeneration) return;
-            craftingReferences.Text = references.Count == 0 ? "No saved crafting references. Use Assign recipes to create a teaching link." : string.Join("\r\n", references);
+            craftingReferences.Text = references.Count == 0 ? "No saved profession references. Open the Professions Editor to add a recipe, source or teaching link." : string.Join("\r\n", references);
         } catch (Exception e) { if (!IsDisposed && generation == craftingReferenceGeneration) craftingReferences.Text = "Unable to load references: " + e.Message; }
     }
     private bool TryCraftingDeleteGuard(int item, out string sql)
@@ -52,12 +52,12 @@ public partial class ItemEditor
             string connection = CraftingMasteryEditor.ConnectionString(pMain);
             var uses = CraftingItemReferences.Read(connection, item, pMain.pSettings.WorkLocale);
             if (uses.Count > 0) {
-                MessageBox.Show(this, "This item is referenced by crafting. Remove or replace these references in Crafting & Mastery before deleting it:\r\n\r\n" + string.Join("\r\n", uses), "Item is used by crafting", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, "This item is referenced by profession content. Remove or replace these references in Professions Editor before deleting it:\r\n\r\n" + string.Join("\r\n", uses), "Item is used by professions", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return false;
             }
             using var db = new MySqlConnection(connection); db.Open();
             if (CraftingItemReferences.HasSchema(db)) sql = CraftingItemReferences.DeleteGuard(pMain.pSettings.DBData, item);
             return true;
-        } catch (Exception e) { MessageBox.Show(this, "Cannot verify crafting references. Nothing was deleted.\r\n" + e.Message, "Item deletion", MessageBoxButtons.OK, MessageBoxIcon.Error); return false; }
+        } catch (Exception e) { MessageBox.Show(this, "Cannot verify profession references. Nothing was deleted.\r\n" + e.Message, "Item deletion", MessageBoxButtons.OK, MessageBoxIcon.Error); return false; }
     }
 }

@@ -1,4 +1,5 @@
 using System.Text;
+using LastChaos_ToolBoxNG.Professions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -45,7 +46,7 @@ public sealed class GatheringResource
     public int BronzeRequired { get; set; }
     public int SilverRequired { get; set; }
     public int MasteryRequired { get; set; }
-    public bool Enabled { get; set; } = true;
+    [JsonIgnore] public bool Enabled { get; set; } = true;
     public List<Bonus> Bonuses { get; set; } = [];
     [JsonIgnore] public string Name { get; set; } = "";
     [JsonIgnore] public string ProfessionName => Profession switch { 1=>"Mining",2=>"Herbalism",3=>"Fishing",4=>"Wave Absorption",_=>"Unknown" };
@@ -61,7 +62,7 @@ public sealed class MastersRank
     public List<Bonus> Bonuses { get; set; } = [];
 }
 public sealed record CraftingItem(int Id, string Name, bool Enabled, int Type, int Subtype,
-    long Flags, int StackLimit, int Texture, int Row, int Column, bool Rebirth)
+    long Flags, int StackLimit, int Texture, int Row, int Column, bool Rebirth, int Wearing = -1)
 {
     public bool Manual => Type == 2 && Subtype is 1 or 2 or 4;
     public bool Stackable => (Flags & 1) != 0;
@@ -73,6 +74,7 @@ public sealed class CraftingCatalog
     public List<Recipe> Recipes { get; set; } = [];
     public List<MastersRank> Ranks { get; set; } = [];
     public List<GatheringResource> Gathering { get; set; } = [];
+    public ProfessionContent Professions { get; set; } = new();
     [JsonIgnore] public Dictionary<int, CraftingItem> Items { get; set; } = [];
     public static T Copy<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value))!;
     public string Fingerprint() {
@@ -81,10 +83,21 @@ public sealed class CraftingCatalog
         foreach(var r in copy.Recipes) r.Bonuses=Ordered(r.Bonuses);
         foreach(var r in copy.Gathering) r.Bonuses=Ordered(r.Bonuses);
         foreach(var r in copy.Ranks) r.Bonuses=Ordered(r.Bonuses);
-        return JsonSerializer.Serialize(new {copy.SkillCap,Recipes=copy.Recipes.OrderBy(r=>r.Id),Ranks=copy.Ranks.OrderBy(r=>r.Id),Gathering=copy.Gathering.OrderBy(r=>r.ItemId)});
+        return JsonSerializer.Serialize(new {copy.SkillCap,Recipes=copy.Recipes.OrderBy(r=>r.Id),Ranks=copy.Ranks.OrderBy(r=>r.Id),Gathering=copy.Gathering.OrderBy(r=>r.ItemId),Professions=copy.Professions.Canonical()});
     }
     public string ItemName(int id) => Items.TryGetValue(id, out var item) ? item.Name : $"Missing item #{id}";
-    public void UpdateNames() { foreach (var r in Recipes) r.Name = ItemName(r.OutputItem); foreach(var r in Gathering) r.Name=ItemName(r.ItemId); }
+    public void UpdateNames() { foreach (var r in Recipes) r.Name = ItemName(r.OutputItem); foreach(var r in Gathering) { r.Name=ItemName(r.ItemId);r.Enabled=IsGatheringAvailable(r.ItemId); } }
+    public bool IsGatheringAvailable(int item) {
+        bool ParentOn(string table,string key,int id)=>Professions.Rows(table).Any(r=>r.Int(key)==id&&r.Enabled);
+        return Professions.Rows("t_gathering_node").Any(r=>r.Enabled&&r.Int("a_profession")==1&&r.Int("a_item_index")==item)
+            || Professions.Rows("t_gathering_node_loot").Any(r=>r.Enabled&&r.Int("a_item_index")==item&&ParentOn("t_gathering_node","a_index",r.Int("a_node_index")))
+            || Professions.Rows("t_herb_loot").Any(r=>r.Enabled&&r.Int("a_item_index")==item&&ParentOn("t_herb_population","a_index",r.Int("a_population_index")))
+            || Professions.Rows("t_fishing_loot").Any(r=>r.Enabled&&r.Int("a_item_index")==item&&ParentOn("t_fishing_water","a_index",r.Int("a_water_index")));
+    }
+    private IEnumerable<string> ProfessionUses(int item) {
+        foreach(var table in ProfessionSchema.Tables)foreach(var row in Professions.Rows(table.Name))foreach(var field in table.Fields.Where(f=>f.Kind==FieldKind.Item))
+            if(row.Int(field.Column)==item)yield return table.Title+" #"+row.Key(table)+" — "+field.Label+(row.Enabled?"":" (retired)");
+    }
     public IEnumerable<string> WhereUsed(int item) => Recipes.SelectMany(r => {
         var uses = new List<string>();
         if (r.OutputItem == item) uses.Add("output");
@@ -92,7 +105,7 @@ public sealed class CraftingCatalog
         if (r.Manuals.Any(i => i.ItemId == item)) uses.Add("teaches");
         if (r.BonusOutputs.Any(i => i.ItemId == item)) uses.Add("bonus output");
         return uses.Select(u => $"#{r.Id} {ItemName(r.OutputItem)} — {u}{(r.Enabled ? "" : " (retired)")}");
-    }).Concat(Gathering.Where(r=>r.ItemId==item).Select(r=>$"{r.ProfessionName} resource #{r.ItemId} — mastery"));
+    }).Concat(Gathering.Where(r=>r.ItemId==item).Select(r=>$"{r.ProfessionName} resource #{r.ItemId} — mastery")).Concat(ProfessionUses(item));
 }
 public sealed record CraftingIssue(bool Error, string Target, string Message)
 {
@@ -189,11 +202,11 @@ public static class CraftingRules
         foreach(var r in c.Gathering) {
             string t=$"Gathering item {r.ItemId}";
             if(r.ItemId<=0 || r.Profession is <1 or >4 || r.MasteryXp<0 || !ValidThresholds(r.BronzeRequired,r.SilverRequired,r.MasteryRequired)) Error(t,"Invalid gathering identity, XP or tier targets. Each tier must cost more additional XP.");
-            if(r.Enabled && !c.Items.ContainsKey(r.ItemId)) Error(t,"Resource item does not exist.");
+            if(!c.Items.TryGetValue(r.ItemId,out var resourceItem) || !resourceItem.Enabled) Error(t,"Resource item does not exist or is disabled.");
             Bonuses(t,r.Bonuses,true);
         }
-        if(c.Gathering.Count>64 || c.Gathering.Select(r=>r.ItemId).Distinct().Count()!=c.Gathering.Count) Error("Gathering","Use at most 64 distinct resource IDs.");
-        int available = 3*(c.Recipes.Count(r => r.Enabled && r.MasteryXp > 0)+c.Gathering.Count(r=>r.Enabled && r.MasteryXp>0));
+        if(c.Gathering.Count(r=>r.Profession==3)>64 || c.Gathering.Count(r=>r.Profession!=3)>64 || c.Gathering.Select(r=>r.ItemId).Distinct().Count()!=c.Gathering.Count) Error("Gathering","Use at most 64 distinct resources in each common/Fishing catalogue, with globally unique item IDs.");
+        int available = 3*(c.Recipes.Count(r => r.Enabled && r.MasteryXp > 0)+c.Gathering.Count(r=>c.IsGatheringAvailable(r.ItemId) && r.MasteryXp>0));
         foreach (var r in c.Ranks.OrderBy(r => r.Order)) {
             string t = $"Artisan Rank {r.Id}";
             if (r.Id <= 0 || r.Order <= order || r.RequiredMastered <= threshold || r.RequiredMastered > 98304) Error(t, "Artisan Rank order and mastery-point thresholds must increase strictly (maximum threshold 98304).");
@@ -204,6 +217,7 @@ public static class CraftingRules
             Bonuses(t, r.Bonuses);
         }
         if (totals.Any(v => v > 32767)) Error("Bonuses", "Combined crafting, gathering and Artisan Rank bonuses exceed 32767 in a stat channel, including overlapping All/Physical effects and retired definitions.");
+        issues.AddRange(ProfessionRules.Validate(c));
         return issues;
     }
     private static bool ValidUtf8(string text) { try { new UTF8Encoding(false, true).GetBytes(text); return true; } catch (EncoderFallbackException) { return false; } }

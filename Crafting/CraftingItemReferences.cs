@@ -9,14 +9,21 @@ public static class CraftingItemReferences
         ("t_crafting_ingredient", "a_item_index", "ingredient"),
         ("t_crafting_manual", "a_manual_item", "teaching item"),
         ("t_crafting_bonus_output", "a_item_index", "bonus output"),
-        ("t_gathering_material", "a_item_index", "gathering mastery")];
+        ("t_gathering_material", "a_item_index", "gathering mastery"),
+        ("t_gathering_node", "a_item_index", "Node base resource"),
+        ("t_gathering_node_loot", "a_item_index", "Node weighted outcome"),
+        ("t_gathering_tool", "a_item_index", "Gathering tool"),
+        ("t_herb_population", "a_visual_tool_index", "Herb visual tool"),
+        ("t_herb_loot", "a_item_index", "Herb harvest outcome"),
+        ("t_fishing_settings", "a_rod_item_index", "Required fishing rod"),
+        ("t_fishing_loot", "a_item_index", "Fishing catch")];
 
     public static bool HasSchema(MySqlConnection db)
     {
         using var cmd = new MySqlCommand("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", CraftingRepository.Tables.Select(t => "'" + t + "'")) + ")", db);
         int count = Convert.ToInt32(cmd.ExecuteScalar());
-        if (count != 0 && count != CraftingRepository.Tables.Length) throw new InvalidOperationException("Incomplete crafting schema. Apply all crafting migrations before changing item references.");
+        if (count != 0 && count != CraftingRepository.Tables.Length) throw new InvalidOperationException("Incomplete profession schema. Apply the profession migrations before changing item references.");
         return count == CraftingRepository.Tables.Length;
     }
     public static List<string> Read(string connectionString, int item, string locale = "usa")
@@ -30,6 +37,20 @@ public static class CraftingItemReferences
                 using var resource=new MySqlCommand($"SELECT COALESCE(i.a_name_{locale},'Missing resource item') FROM t_gathering_material u LEFT JOIN t_item i ON i.a_index=u.a_item_index WHERE u.a_item_index=@item",db);
                 resource.Parameters.AddWithValue("@item",item);var name=resource.ExecuteScalar();
                 if(name is not null)result.Add($"Gathering resource #{item} {name} — mastery");
+                continue;
+            }
+            if(!use.Table.StartsWith("t_crafting_",StringComparison.Ordinal)) {
+                string key=use.Table switch {
+                    "t_gathering_node_loot"=>"CONCAT(a_node_index,' / ',a_slot)",
+                    "t_herb_loot"=>"CONCAT(a_population_index,' / ',a_slot)",
+                    "t_fishing_loot"=>"CONCAT(a_water_index,' / ',a_slot)",
+                    "t_gathering_tool"=>"CAST(a_item_index AS CHAR)",
+                    _=>"CAST(a_index AS CHAR)"
+                };
+                using var source=new MySqlCommand($"SELECT {key} FROM {use.Table} WHERE {use.Field}=@item ORDER BY 1",db);
+                source.Parameters.AddWithValue("@item",item);
+                using var sourceRows=source.ExecuteReader();
+                while(sourceRows.Read())result.Add($"{use.Role} #{sourceRows.GetString(0)}");
                 continue;
             }
             string id = use.Table == "t_crafting_recipe" ? "a_index" : "a_recipe_index";

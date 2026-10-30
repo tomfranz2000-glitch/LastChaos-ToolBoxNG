@@ -24,25 +24,18 @@ internal static class Program
             admin.Open(); using var cmd = new MySqlCommand("DROP DATABASE IF EXISTS ep4_data; DROP DATABASE IF EXISTS ep4_db; CREATE DATABASE ep4_data CHARACTER SET utf8mb4; CREATE DATABASE ep4_db CHARACTER SET utf8mb4;", admin); cmd.ExecuteNonQuery();
         }
         using var connection = new MySqlConnection(Connection); db = connection; db.Open();
-        Exec("CREATE TABLE ep4_db.t_characters(a_index INT PRIMARY KEY,a_crafting_smithing TINYINT UNSIGNED NOT NULL DEFAULT 1,a_crafting_alchemy TINYINT UNSIGNED NOT NULL DEFAULT 1,CONSTRAINT chk_crafting_smithing CHECK(a_crafting_smithing BETWEEN 1 AND 50),CONSTRAINT chk_crafting_alchemy CHECK(a_crafting_alchemy BETWEEN 1 AND 50),a_crafting_stat_points INT NOT NULL,CONSTRAINT chk_crafting_stat_points CHECK(a_crafting_stat_points BETWEEN 0 AND 98)) ENGINE=InnoDB;");
-        foreach (string filename in Directory.GetFiles(Path.Combine(game, "x64-server/db/migrations"), "*.sql").Where(p => int.TryParse(Path.GetFileName(p)[..4], out int n) && n is >= 13 and <= 18).Order()) Exec(File.ReadAllText(filename));
-        // Minimal real gathering schemas satisfy the actual coordinated tier migration.
-        Exec(File.ReadAllText(Path.Combine(game,"x64-server/db/migrations/0023-gathering-material-mastery.sql")));
-        Exec("ALTER TABLE ep4_data.t_gathering_material ADD a_profession INT NOT NULL DEFAULT 1, ADD CONSTRAINT fixture_profession CHECK(a_profession BETWEEN 1 AND 4)");
-        ExecScript(File.ReadAllText(Path.Combine(game,"x64-server/db/migrations/0036-three-tier-mastery.sql")));
-        Exec("USE ep4_data; CREATE TABLE t_item(a_index INT PRIMARY KEY,a_name_usa VARCHAR(100),a_enable INT,a_type_idx INT,a_subtype_idx INT,a_flag BIGINT,a_weight INT,a_texture_id INT,a_texture_row INT,a_texture_col INT) ENGINE=InnoDB;");
-        foreach (string table in CraftingRepository.Tables) Exec(File.ReadAllText(Path.Combine(game, "x64-server/db/seeds/ep4_data", table + ".sql")));
-        Exec("INSERT INTO t_item SELECT item,CONCAT('Fixture item ',item),1,4,0,1,2147483647,0,0,0 FROM (SELECT a_output_item item FROM t_crafting_recipe UNION SELECT a_item_index FROM t_crafting_ingredient UNION SELECT a_manual_item FROM t_crafting_manual UNION SELECT a_item_index FROM t_crafting_bonus_output UNION SELECT a_item_index FROM t_gathering_material) refs; UPDATE t_item SET a_type_idx=2,a_subtype_idx=1 WHERE a_index IN(SELECT a_manual_item FROM t_crafting_manual);");
+        FixtureContent.Setup(game,db);
+        Exec("DELETE FROM ep4_db.t_crafting_mastery;DELETE FROM ep4_db.t_gathering_mastery;DELETE FROM ep4_db.t_crafting_master_rank;");
         Run("current authored catalogue loads and validates", () => {
             var c = Repository.Load(); Check(c.Recipes.Count == 646 && c.Gathering.Count == 14, "Expected every tracked recipe and gathering resource.");
             Check(c.Gathering.Select(r=>r.Profession).Distinct().Order().SequenceEqual(new[]{1,2,3,4}),"Missing gathering profession.");
             Check(!CraftingRules.Validate(c).Any(i => i.Error), string.Join("\n", CraftingRules.Validate(c)));
             File.WriteAllText(Path.Combine(output, "catalogue-counts.txt"), $"{c.Recipes.Count} recipes; {c.Ranks.Count} ranks\n");
         });
-        Exec("INSERT INTO t_item VALUES (200001,'Healing meal',1,4,0,1,9999,0,0,0),(200002,'Herb',1,4,0,1,9999,0,0,0),(200003,'Recipe book',1,2,1,1,9999,0,0,0),(200004,'Bonus powder',1,4,0,1,9999,0,0,0),(200005,'Second recipe book',1,2,4,1,9999,0,0,0);");
+        Exec("INSERT INTO t_item(a_index,a_name_usa,a_enable,a_type_idx,a_subtype_idx,a_flag,a_weight,a_texture_id,a_texture_row,a_texture_col) VALUES (200001,'Healing meal',1,4,0,1,9999,0,0,0),(200002,'Herb',1,4,0,1,9999,0,0,0),(200003,'Recipe book',1,2,1,1,9999,0,0,0),(200004,'Bonus powder',1,4,0,1,9999,0,0,0),(200005,'Second recipe book',1,2,4,1,9999,0,0,0);");
         Exec("INSERT INTO ep4_db.t_crafting_mastery VALUES(7,1,20,1,3); INSERT INTO ep4_db.t_gathering_mastery VALUES(7,156,200,0,1); INSERT INTO ep4_db.t_crafting_master_rank VALUES(7,1); INSERT INTO ep4_db.t_crafting_recipe_unlock VALUES(7,1);");
 
-        Run("all eleven content tables round-trip including Cooking", () => {
+        Run("all 23 content tables round-trip including Cooking", () => {
             Reset(); var empty = Repository.Load(); var c = Sample(); Repository.Save(empty, c);
             Check(Repository.Load().Fingerprint() == c.Fingerprint(), "Round-trip differs.");
             Check(Scalar("SELECT a_chance FROM t_crafting_bonus_output") == "1234", "Percentage precision lost.");
@@ -184,14 +177,14 @@ internal static class Program
                 using var bitmap=CraftingEmblem.Read(path); Check(bitmap.GetPixel(2,2)==Color.FromArgb(255,255,0,0),"Wrong DXT pixel for flags "+flags);
             }
         });
-        Run("canonical seed exporter writes only the eleven content files", () => {
+        Run("canonical seed exporter writes only the 23 content files", () => {
             SeedSample(); string checkout=Path.Combine(output,"export-checkout");
             Directory.CreateDirectory(Path.Combine(checkout,"x64-server/db/seeds/ep4_data")); Directory.CreateDirectory(Path.Combine(checkout,"x64-server/compose"));
             File.Copy(Path.Combine(game,"x64-server/db/export-seed.sh"),Path.Combine(checkout,"x64-server/db/export-seed.sh"),true);
             File.Copy(Path.Combine(Directory.GetCurrentDirectory(),"tests/CraftingVerification/compose.yml"),Path.Combine(checkout,"x64-server/compose/docker-compose.yml"),true);
             foreach(string table in CraftingRepository.Tables) File.Copy(Path.Combine(game,"x64-server/db/seeds/ep4_data",table+".sql"),Path.Combine(checkout,"x64-server/db/seeds/ep4_data",table+".sql"),true);
             var basis=Repository.Load(); CraftingSeedExport.Export(checkout,Connection,"usa",basis.Fingerprint());
-            Check(Directory.GetFiles(Path.Combine(checkout,"x64-server/db/seeds"),"*.sql",SearchOption.AllDirectories).Length==11,"Wrong exported scope.");
+            Check(Directory.GetFiles(Path.Combine(checkout,"x64-server/db/seeds"),"*.sql",SearchOption.AllDirectories).Length==CraftingRepository.Tables.Length,"Wrong exported scope.");
             Reset(); foreach(string table in CraftingRepository.Tables) Exec(File.ReadAllText(Path.Combine(checkout,"x64-server/db/seeds/ep4_data",table+".sql")));
             Check(Repository.Load().Fingerprint()==basis.Fingerprint(),"Export/import round-trip changed data.");
             var before=File.ReadAllText(Path.Combine(checkout,"x64-server/db/seeds/ep4_data/t_crafting_recipe.sql"));
@@ -200,7 +193,7 @@ internal static class Program
         });
         Run("offline editor layout, teaching-item browser and navigation", () => {
             SeedSample();
-            Exec("INSERT INTO t_item VALUES(200005,'Second recipe book',1,2,4,1,9999,0,0,0) ON DUPLICATE KEY UPDATE a_enable=1;");
+            Exec("INSERT INTO t_item(a_index,a_name_usa,a_enable,a_type_idx,a_subtype_idx,a_flag,a_weight,a_texture_id,a_texture_row,a_texture_col) VALUES(200005,'Second recipe book',1,2,4,1,9999,0,0,0) ON DUPLICATE KEY UPDATE a_enable=1;");
             Preview();
         });
         File.WriteAllText(Path.Combine(output,"results.json"),JsonSerializer.Serialize(Results,new JsonSerializerOptions { WriteIndented=true }));
@@ -224,10 +217,10 @@ internal static class Program
     }
     static void Exec(string sql) { using var cmd=new MySqlCommand(sql,db); cmd.ExecuteNonQuery(); }
     static string Scalar(string sql) { using var cmd=new MySqlCommand(sql,db); return Convert.ToString(cmd.ExecuteScalar())!; }
-    static void Reset() { Exec("SET FOREIGN_KEY_CHECKS=0;"+string.Join(";",CraftingRepository.Tables.Where(t=>!t.StartsWith("t_gathering_")).Select(t=>"TRUNCATE TABLE "+t))+";INSERT INTO t_crafting_settings VALUES(1,50);SET FOREIGN_KEY_CHECKS=1;"); foreach(string table in new[]{"t_gathering_material","t_gathering_material_bonus"}) Exec(File.ReadAllText(Path.Combine(game,"x64-server/db/seeds/ep4_data",table+".sql"))); }
+    static void Reset() { Exec("SET FOREIGN_KEY_CHECKS=0;"+string.Join(";",CraftingRepository.BaseTables.Where(t=>!t.StartsWith("t_gathering_")).Select(t=>"TRUNCATE TABLE "+t))+";INSERT INTO t_crafting_settings VALUES(1,50);SET FOREIGN_KEY_CHECKS=1;"); foreach(string table in new[]{"t_gathering_material","t_gathering_material_bonus"}) Exec(File.ReadAllText(Path.Combine(game,"x64-server/db/seeds/ep4_data",table+".sql"))); }
     static void SeedSample() { Reset(); Repository.Save(Repository.Load(),Sample()); }
     static CraftingCatalog Sample() => new() {
-        Items=Repository.Load().Items, Gathering=CraftingCatalog.Copy(Repository.Load().Gathering),
+        Items=Repository.Load().Items, Gathering=CraftingCatalog.Copy(Repository.Load().Gathering), Professions=Repository.Load().Professions,
         Recipes=[new() { Id=1, Profession=Profession.Cooking, OutputItem=200001, OutputQuantity=2, CraftTimeMs=2500, RequiredSkill=1, NoSkillUp=31, SortOrder=10, RequiresUnlock=true,
             Ingredients=[new() {ItemId=200002,Quantity=3}], Manuals=[new() {ItemId=200003}], MasteryXp=10, BronzeRequired=16, SilverRequired=50, MasteryRequired=100,
             Bonuses=[new() {Effect=102,Amount=50}], BonusOutputs=[new() {ItemId=200004,Quantity=1,ChancePercent=12.34m}] }],
@@ -252,9 +245,22 @@ internal static class Program
         var tabs=(TabControl)type.GetField("tabs",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
         void Capture(string name) { Application.DoEvents(); using var bitmap=new Bitmap(editor.Width,editor.Height); editor.DrawToBitmap(bitmap,new(0,0,bitmap.Width,bitmap.Height)); bitmap.Save(Path.Combine(output,name+".png")); }
         Check(tabs.TabPages[2].Text=="Artisan Ranks","Rank editor tab must use the independent Artisan Rank system name.");
+        type.GetMethod("SelectNavigation",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(editor,new object[]{"Artisan Ranks"});Application.DoEvents();
+        var rankRows=(DataGridView)type.GetField("ranks",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
+        rankRows.CurrentCell=rankRows.Rows[1].Cells[0];Application.DoEvents();
+        Check(((MastersRank)type.GetField("selectedRank",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!).Id==((MastersRank)rankRows.CurrentRow!.DataBoundItem).Id,"Rank detail actions followed the previous selection instead of the current cell.");
+        type.GetMethod("SelectNavigation",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(editor,new object[]{"Resources & mastery"});Application.DoEvents();
+        var resourceRows=(DataGridView)type.GetField("gatheringRows",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
+        resourceRows.CurrentCell=resourceRows.Rows[1].Cells[0];Application.DoEvents();
+        var chosenResource=(GatheringResource)resourceRows.CurrentRow!.DataBoundItem;
+        Check(((GatheringResource)type.GetField("selectedGathering",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!).ItemId==chosenResource.ItemId,"Gathering details followed the previous selection instead of the current cell.");
+        var resourcePanel=(Panel)type.GetField("gatheringDetail",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
+        Check(Descendants(resourcePanel).OfType<Label>().Any(l=>l.Text.Contains("item "+chosenResource.ItemId)),"The detail heading did not follow the selected gathering resource.");
+        type.GetMethod("SelectNavigation",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(editor,new object[]{"Cooking"});
+        Application.DoEvents();
         Capture("recipes");
         var detail=(Panel)type.GetField("recipeDetail",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(editor)!;
-        var details=(TabControl)detail.Controls[0];
+        var details=Descendants(detail).OfType<TabControl>().Single();
         var fields=(FlowLayoutPanel)details.TabPages[0].Controls[0];
         var profession=fields.Controls.OfType<FlowLayoutPanel>().SelectMany(p=>p.Controls.OfType<ComboBox>()).Single();
         Check((Profession)profession.SelectedItem! == Profession.Cooking,"Profession dropdown differs from saved recipe.");

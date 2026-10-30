@@ -35,7 +35,7 @@ public sealed partial class CraftingMasteryEditor
                 e.Value = ItemIcon(item.Id); e.FormattingApplied = true;
             }
         };
-        teachingItems.SelectionChanged += (_,_) => {
+        teachingItems.CurrentCellChanged += (_,_) => {
             if(bindingTeachingItems || teachingItems.CurrentRow?.DataBoundItem is not TeachingItemRow item) return;
             bindingTeachingItems = true;
             try { bookItem.Value = item.Id; }

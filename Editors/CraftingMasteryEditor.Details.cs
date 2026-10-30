@@ -217,13 +217,13 @@ public sealed partial class CraftingMasteryEditor
             var rows=catalog.Recipes.Where(r=>r.Enabled && r.Profession==p).ToList();
             text.AppendLine($"{p}: {rows.Count} enabled recipes; {3*rows.Count(r=>r.MasteryXp>0)} obtainable Artisan Rank points");
             var gaps=Enumerable.Range(1,catalog.SkillCap-1).Where(s=>!rows.Any(r=>CraftingRules.Chance(r,s,catalog.SkillCap)>0));
-            text.AppendLine("  Skill levels without a training recipe: "+string.Join(", ",gaps));
+            text.AppendLine("  Skill levels without a training recipe: "+CompactSkillRanges(gaps));
         }
         foreach(var group in catalog.Gathering.GroupBy(r=>r.ProfessionName))text.AppendLine($"{group.Key}: {group.Count()} resources; {3*group.Count(r=>r.MasteryXp>0)} obtainable Artisan Rank points");
         text.AppendLine("\r\nAll obtainable crafting, gathering and Artisan Rank bonuses (including retained retired rewards):");
         text.AppendLine(CraftingRules.Rewards(catalog.Recipes.SelectMany(r=>r.Bonuses).Concat(catalog.Gathering.SelectMany(r=>r.Bonuses)).Concat(catalog.Ranks.SelectMany(r=>r.Bonuses))));
         text.AppendLine("\r\nValidation:"); var issues=CraftingRules.Validate(catalog);
         text.AppendLine(issues.Count==0?"No issues.":string.Join("\r\n",issues));
-        ShowText("Crafting catalogue overview",text.ToString());
+        ShowText("Professions overview",text.ToString());
     }
 }

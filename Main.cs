@@ -221,7 +221,7 @@ namespace LastChaos_ToolBoxNG
 				{ "Good/Evil Reward Editor",	() => new GoodEvilEditor(this) },
 				{ "Option Editor",				() => new OptionEditor(this) },
 				{ "Rare Option Editor",			() => new RareOptionEditor(this) },
-				{ "Crafting & Mastery Editor", () => new CraftingMasteryEditor(this) },
+				{ "Professions Editor", () => new CraftingMasteryEditor(this) },
 				{ "Crafting Editor — Legacy",			() => new CraftingEditor(this) },
 				{ "NPC Editor",					() => new NPCEditor(this) },
 				{ "Shop Editor",				() => new ShopEditor(this) },
