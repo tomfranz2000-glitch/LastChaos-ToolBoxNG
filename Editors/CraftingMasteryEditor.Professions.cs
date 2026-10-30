@@ -376,6 +376,8 @@ public sealed partial class CraftingMasteryEditor
                 text.TextChanged += (_, _) => { row.Set(field.Column, text.Text); ProfessionEntryEdited(browser); };
                 line.Controls.Add(text);
             }
+            else if (field.Kind == FieldKind.ArtisanRank && !readOnly)
+                AddProfessionArtisanRank(line, browser, row, field);
             else if (field.Kind is FieldKind.Parent or FieldKind.Profile && !readOnly)
                 AddProfessionReference(line, browser, row, field);
             else if (field.Kind is FieldKind.Item or FieldKind.Npc or FieldKind.Zone && !readOnly)
@@ -406,6 +408,35 @@ public sealed partial class CraftingMasteryEditor
                 hint.Margin = new(10, 0, 5, 7); content.Controls.Add(hint);
             }
         }
+    }
+
+    private void AddProfessionArtisanRank(FlowLayoutPanel line, ProfessionBrowser browser, ProfessionRow row, ProfessionField field)
+    {
+        var combo = new ComboBox { Name = field.Column, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList,
+            DisplayMember = "Name", ValueMember = "Id" };
+        bool refreshing = false;
+        void RefreshChoices()
+        {
+            refreshing = true; combo.BeginUpdate();
+            try
+            {
+                var choices = new List<ProfessionChoice> { new(0, "None — unrestricted") };
+                choices.AddRange(catalog.Ranks.OrderBy(rank => rank.Order).ThenBy(rank => rank.Id)
+                    .Select(rank => new ProfessionChoice(rank.Id, $"{rank.Name} (ID {rank.Id})" + (rank.Enabled ? "" : " — retired"))));
+                int saved = row.Int(field.Column);
+                if (!choices.Any(choice => choice.Id == saved)) choices.Add(new(saved, "Missing Artisan Rank (ID " + saved + ")"));
+                combo.Items.Clear(); combo.Items.AddRange(choices.Cast<object>().ToArray());
+                combo.SelectedIndex = choices.FindIndex(choice => choice.Id == saved);
+            }
+            finally { combo.EndUpdate(); refreshing = false; }
+        }
+        RefreshChoices();
+        combo.DropDown += (_, _) => RefreshChoices();
+        combo.SelectedIndexChanged += (_, _) => {
+            if (refreshing || combo.SelectedItem is not ProfessionChoice selected) return;
+            row.Set(field.Column, selected.Id); ProfessionEntryEdited(browser);
+        };
+        line.Controls.Add(combo);
     }
 
     private void AddProfessionReference(FlowLayoutPanel line, ProfessionBrowser browser, ProfessionRow row, ProfessionField field)

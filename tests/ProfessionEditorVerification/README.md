@@ -21,3 +21,5 @@ The Infusions checks use the actual authored potion, skill and magic seed rows.
 They cover the three station pages, derived and immutable effect identities,
 unsupported lifecycle flags, costs/availability, safe model paths, exact native
 hundredth units, JSON roundtrip and the content-recording/player-data boundary.
+Station access checks cover named Artisan Rank choices, None/unrestricted access,
+retired durable IDs, missing references and preserving IDs independently of order.

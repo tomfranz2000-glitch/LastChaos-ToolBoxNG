@@ -78,6 +78,9 @@ public static class InfusionRules
         foreach(var offer in offers)if(!effects.Any(e=>e.Int("a_index")==offer.Int("a_effect_index")))Error("Infusion offer #"+offer.Int("a_index"),"Choose an existing permanent effect.");
         if(facilities.Count!=1||facilities[0].Int("a_index")!=1)Error("Alchemy station","Exactly one station definition with ID 1 is required.");
         foreach(var facility in facilities) {
+            int requiredRank=facility.Int("a_required_artisan_rank");
+            if(requiredRank!=0&&!c.Ranks.Any(rank=>rank.Id==requiredRank))
+                Error("Alchemy station","Required Artisan Rank must be None or an existing permanent rank ID; retired ranks remain valid.");
             if(facility.Get("a_name").EnumerateRunes().Count()>64)Error("Alchemy station","Station name must contain at most 64 characters.");
             string model=facility.Get("a_model").Replace('\\','/');
             if(!model.StartsWith("Data/",StringComparison.Ordinal)||!model.EndsWith(".smc",StringComparison.OrdinalIgnoreCase)||model.Contains(':')||model.Any(ch=>ch<32||ch>126)||model.Split('/').Any(s=>s.Length==0||s is "." or ".."))Error("Alchemy station","Model must be an ASCII relative Data/ path ending in .smc, without parent traversal.");

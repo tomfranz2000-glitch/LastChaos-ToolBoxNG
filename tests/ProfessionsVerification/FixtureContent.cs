@@ -23,7 +23,7 @@ internal static class FixtureContent
         Data("0033-wave-absorption.sql");Run("0034-active-wave-attunement.sql");Run("0035-wave-attunement-holds.sql");
         ExecuteScript(db,Migration("0036-three-tier-mastery.sql"));Run("0037-artisan-rank-names.sql");
         Exec("USE ep4_data;CREATE TABLE t_item(a_index INT PRIMARY KEY,a_name_usa VARCHAR(100),a_enable INT,a_type_idx INT,a_subtype_idx INT,a_flag BIGINT,a_weight INT,a_texture_id INT,a_texture_row INT,a_texture_col INT,a_wearing INT NOT NULL DEFAULT -1,a_num_0 INT NOT NULL DEFAULT 0,a_num_1 INT NOT NULL DEFAULT 0) ENGINE=InnoDB;");
-        ExecuteScript(db,Migration("0038-alchemy-potion-mastery.sql"));ExecuteScript(db,Migration("0039-alchemy-station.sql"));
+        ExecuteScript(db,Migration("0038-alchemy-potion-mastery.sql"));ExecuteScript(db,Migration("0039-alchemy-station.sql"));ExecuteScript(db,Migration("0040-alchemy-artisan-rank-unlock.sql"));
         Exec("CREATE TABLE t_npc(a_index INT PRIMARY KEY,a_name VARCHAR(100),a_name_usa VARCHAR(100),a_flag BIGINT,a_enable INT) ENGINE=InnoDB;CREATE TABLE t_zonedata(a_zone_index INT PRIMARY KEY,a_name VARCHAR(100)) ENGINE=InnoDB;");
         foreach(string table in CraftingRepository.Tables)Exec(File.ReadAllText(Path.Combine(game,"x64-server/db/seeds/ep4_data",table+".sql")));
         // Eligibility metadata is intentionally synthetic here. The offline UI

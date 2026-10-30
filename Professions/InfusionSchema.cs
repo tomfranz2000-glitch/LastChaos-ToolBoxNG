@@ -18,7 +18,10 @@ public static class InfusionSchema
             Number("a_required_count","Potions consumed",1,1000000,help:"All are consumed together only after the server confirms the purchase.",initial:"250"),
             Enabled(),Number("a_sort","Display order",0,1000000)],"Infusions"),
         new(Facility,"Alchemy station","One station in private hall template 1 (zone 8). Placement is relative to that native world; the server checks its map bounds. Model artwork must be deployed separately.",["a_index"],[
-            Id(1),Enabled("Station enabled"),new("a_name","Station name",FieldKind.Text,Help:"At most 64 characters (256 UTF-8 bytes).",Max:256,Default:"Alchemy station"),
+            Id(1),Enabled("Station enabled"),
+            new("a_required_artisan_rank","Required Artisan Rank",FieldKind.ArtisanRank,"Access",
+                "Requires this earned Artisan Rank. Select None for unrestricted access. Earned ranks remain unlocked. The selected permanent rank ID is stored, independently of display order.",
+                Min:0,Max:int.MaxValue,ReferenceTable:"t_crafting_master_rank",Default:"3"),new("a_name","Station name",FieldKind.Text,Help:"At most 64 characters (256 UTF-8 bytes).",Max:256,Default:"Alchemy station"),
             new("a_model","Model path (.smc)",FieldKind.Text,Help:"ASCII path below Data/, for example Data\\World\\Professions\\Alchemy\\alchemy_station.smc. No absolute paths or parent traversal.",Max:240,Default:@"Data\World\Professions\Alchemy\alchemy_station.smc"),
             Number("a_x","X (metres)",0,10000000,"Placement",scale:100,places:2,initial:"4400"),
             Number("a_y","Height (metres)",-1000000,1000000,"Placement",scale:100,places:2,initial:"0"),

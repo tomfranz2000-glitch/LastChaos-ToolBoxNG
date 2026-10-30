@@ -29,6 +29,13 @@ internal static class Program
                 string sql="SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY COLUMN_NAME) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='ep4_data' AND TABLE_NAME='"+table.Name+"'";
                 Check(Scalar(sql)==string.Join(',',table.Fields.Select(f=>f.Column).Order(StringComparer.Ordinal)),"Metadata exactly covers "+table.Name);
             }
+            Check(Row(catalog,InfusionSchema.Facility,1).Int("a_required_artisan_rank")==3,"station requirement loads the seeded durable Artisan Rank ID");
+            var unrestricted=CraftingCatalog.Copy(catalog);Row(unrestricted,InfusionSchema.Facility,1).Set("a_required_artisan_rank",0);
+            Repository.Save(catalog,unrestricted);var unrestrictedSaved=Repository.Load();
+            Check(Row(unrestrictedSaved,InfusionSchema.Facility,1).Int("a_required_artisan_rank")==0,"unrestricted station requirement persists through normal save/reload");
+            Repository.Save(unrestrictedSaved,catalog);catalog=Repository.Load();
+            var missingRank=CraftingCatalog.Copy(catalog);Row(missingRank,InfusionSchema.Facility,1).Set("a_required_artisan_rank",900001);
+            Reject(()=>Repository.Save(catalog,missingRank),"Artisan Rank");
             var issues=CraftingRules.Validate(catalog);Check(!issues.Any(i=>i.Error),"Canonical26-table content satisfies actual catalogue contracts: "+string.Join(";",issues.Where(i=>i.Error)));
             Check(catalog.Professions.Npcs.Count>0&&catalog.Professions.Zones.Count>0,"Loaded NPC flags and zone metadata");
             var availability=CraftingCatalog.Copy(catalog);var wave=Row(availability,"t_gathering_node",2);wave.Set("a_item_index",777099);

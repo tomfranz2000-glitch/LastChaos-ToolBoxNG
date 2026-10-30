@@ -10,7 +10,7 @@ dotnet run --project tests/ProfessionsVerification/ProfessionsVerification.cspro
 docker compose -f tests/ProfessionsVerification/compose.yml down
 ```
 
-The setup applies actual profession DDL through 0039, projecting content sections
+The setup applies actual profession DDL through 0040, projecting content sections
 of coordinated historical migrations when unrelated baseline schemas are not
 needed. It loads all 26 authored seed tables and synthesizes item/NPC/zone metadata
 for their references. It adds inventory, XP, tier and Artisan Rank sentinels.

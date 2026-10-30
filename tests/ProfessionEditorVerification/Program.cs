@@ -90,6 +90,14 @@ static class Program
         foreach(string path in new[]{@"C:\outside.smc",@"Data\..\outside.smc",@"Data\World\bad.txt",@"Data\World\äm.smc"}) {
             var draft=Draft();draft.Professions.Rows(InfusionSchema.Facility)[0].Set("a_model",path);Check(InfusionRules.Validate(draft).Any(i=>i.Error),"unsafe station model path rejected: "+path);
         }
+        Check(ProfessionSchema.NewRow(InfusionSchema.Facility).Int("a_required_artisan_rank")==3,"new station defaults to permanent Artisan Rank ID 3");
+        var unrestricted=Draft();unrestricted.Professions.Rows(InfusionSchema.Facility)[0].Set("a_required_artisan_rank",0);
+        Check(!InfusionRules.Validate(unrestricted).Any(i=>i.Error),"None permits unrestricted station access");
+        var missingRank=Draft();missingRank.Professions.Rows(InfusionSchema.Facility)[0].Set("a_required_artisan_rank",900001);
+        Check(InfusionRules.Validate(missingRank).Any(i=>i.Error&&i.Message.Contains("Artisan Rank")),"missing permanent Artisan Rank reference is rejected");
+        var historicalRank=Draft();historicalRank.Ranks.Add(new MastersRank {Id=900001,Order=900002,Name="Archived station rank",Enabled=false});
+        historicalRank.Professions.Rows(InfusionSchema.Facility)[0].Set("a_required_artisan_rank",900001);
+        Check(!InfusionRules.Validate(historicalRank).Any(i=>i.Error),"retired historical rank is valid by permanent ID independently of display order");
         var wrongSkill=Draft();wrongSkill.Professions.Rows(InfusionSchema.Effects)[0].Set("a_skill_index",504);Check(InfusionRules.Validate(wrongSkill).Any(i=>i.Error),"mismatched original potion skill is rejected");
         foreach(int flag in new[]{4,64,128,256,512,1024,2048,4096,131072}) {
             var raw=JsonSerializer.Deserialize<Snapshot>(File.ReadAllText(args[1]))!.InfusionMetadata;var skill=raw["t_skill"].Single(r=>N(r,"a_index")==505);skill["a_flag"]=(N(skill,"a_flag")|flag).ToString();
@@ -208,6 +216,26 @@ static class Program
         Check(c.Professions.Rows(InfusionSchema.Offers)[0].Int("a_required_count")==251,"actual offer control edits only the draft potion quantity");cost.Value=250;
         var enabled=(CheckBox)offersPanel.Controls.Find("a_enabled",true).Single();enabled.Checked=false;Check(!c.Professions.Rows(InfusionSchema.Offers)[0].Enabled,"retiring an offer updates its actual enabled field");enabled.Checked=true;
         Navigate(5,InfusionSchema.Facility);var stationPanel=Detail(5,InfusionSchema.Facility);
+        int ChoiceId(object choice)=>(int)choice.GetType().GetProperty("Id")!.GetValue(choice)!;
+        ComboBox StationRank()=>(ComboBox)Detail(5,InfusionSchema.Facility).Controls.Find("a_required_artisan_rank",true).Single();
+        var station=c.Professions.Rows(InfusionSchema.Facility)[0];int savedRequirement=station.Int("a_required_artisan_rank");
+        var requirement=StationRank();
+        Check(savedRequirement==3&&requirement.SelectedItem!=null&&ChoiceId(requirement.SelectedItem)==savedRequirement,"station selector displays saved Artisan Rank ID 3");
+        Check(requirement.Items.Cast<object>().Any(choice=>ChoiceId(choice)==0&&choice.ToString()!.Contains("unrestricted")),"station selector provides an explained unrestricted option");
+        ((Panel)stationPanel).ScrollControlIntoView(requirement);Capture("infusion-artisan-rank",new Size(1100,720));
+        var retired=new MastersRank {Id=900001,Order=900002,Name="Archived station rank",Enabled=false};c.Ranks.Add(retired);
+        string beforeRankBrowse=c.Fingerprint();Call(requirement,"OnDropDown",EventArgs.Empty);
+        Check(c.Fingerprint()==beforeRankBrowse,"opening rank choices refreshes unsaved rank definitions without editing the draft");
+        var retiredChoice=requirement.Items.Cast<object>().Single(choice=>ChoiceId(choice)==retired.Id);
+        Check(retiredChoice.ToString()!.Contains(retired.Name)&&retiredChoice.ToString()!.Contains("retired"),"station selector names retired ranks with their permanent IDs");
+        requirement.SelectedItem=retiredChoice;
+        Check(station.Int("a_required_artisan_rank")==retired.Id,"station selection stores permanent rank ID rather than display order");
+        requirement.SelectedItem=requirement.Items.Cast<object>().Single(choice=>ChoiceId(choice)==0);
+        Check(station.Int("a_required_artisan_rank")==0&&CraftingCatalog.Copy(c).Professions.Rows(InfusionSchema.Facility)[0].Int("a_required_artisan_rank")==0,"unrestricted selection survives canonical draft JSON roundtrip");
+        requirement.SelectedItem=requirement.Items.Cast<object>().Single(choice=>ChoiceId(choice)==savedRequirement);c.Ranks.Remove(retired);
+        station.Set("a_required_artisan_rank",900001);Call(editor,"RefreshProfessionPages");Navigate(5,InfusionSchema.Facility);requirement=StationRank();
+        Check(requirement.SelectedItem!=null&&ChoiceId(requirement.SelectedItem)==900001&&requirement.SelectedItem.ToString()!.Contains("Missing"),"invalid saved rank stays visible instead of silently selecting None");
+        station.Set("a_required_artisan_rank",savedRequirement);Call(editor,"RefreshProfessionPages");Navigate(5,InfusionSchema.Facility);stationPanel=Detail(5,InfusionSchema.Facility);
         var radius=(NumericUpDown)stationPanel.Controls.Find("a_use_radius",true).Single();Check(radius.Value==4&&radius.DecimalPlaces==2,"station range displays metres rather than stored hundredths");radius.Value=4.25m;
         Check(c.Professions.Rows(InfusionSchema.Facility)[0].Int("a_use_radius")==425,"station metres convert exactly to native integer hundredths");radius.Value=4;
         Check(c.Fingerprint()==initial,"all actual infusion edits restore exact authored content");
