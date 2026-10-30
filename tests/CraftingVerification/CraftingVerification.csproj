@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../LastChaos ToolBoxNG.csproj" />
+    <Compile Include="../ProfessionsVerification/FixtureContent.cs" Link="FixtureContent.cs" />
   </ItemGroup>
 </Project>

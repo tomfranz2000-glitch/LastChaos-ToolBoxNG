@@ -1,12 +1,35 @@
-# Crafting & Mastery Editor
+# Professions Editor
 
-Open **Crafting & Mastery Editor** from the toolbox editor list. **Crafting Editor — Legacy** continues to edit `t_factory_item`; it does not control the new system.
+Open **Professions Editor** from the toolbox editor list. **Crafting Editor — Legacy** continues to edit `t_factory_item`; it does not control the new system.
 
-The new editor uses the toolbox's configured content database and item locale. It requires the game's migrations through **0036**. It does not apply migrations, create tables, or change player progression.
+The new editor uses the toolbox's configured content database and item locale. It requires the game's migrations through **0037**. It does not apply migrations, create tables, or change player progression.
 
 ## Deploying toolbox updates
 
-The desktop `Start-ToolBoxNG.cmd` launcher runs `artifacts/app/LastChaos ToolBoxNG.exe`. Building into `bin/Release` alone does not update that application. Prepare a Release `win-x64` self-contained publish, close the toolbox normally, then deploy the changed published application files into `artifacts/app`. Verify their hashes against the publish output. Preserve the installed `Settings.ini`, `Resources` directory, logs and additional native dependencies; do not replace the runtime folder wholesale. Back up files being replaced. The crafting editor must appear as **Crafting & Mastery Editor**, alongside **Crafting Editor — Legacy**.
+The desktop `Start-ToolBoxNG.cmd` launcher runs `artifacts/app/LastChaos ToolBoxNG.exe`. Building into `bin/Release` alone does not update that application. Prepare a Release `win-x64` self-contained publish, close the toolbox normally, then deploy the changed published application files into `artifacts/app`. Verify their hashes against the publish output. Preserve the installed `Settings.ini`, `Resources` directory, logs and additional native dependencies; do not replace the runtime folder wholesale. Back up files being replaced. The editor must appear as **Professions Editor**, alongside **Crafting Editor — Legacy**.
+
+## Navigation and common workflow
+
+The left navigation groups Crafting (Smithing, Alchemy, Cooking), Gathering
+(Mining, Herbalism, Fishing, Wave Absorption), Resources & mastery and Artisan
+Ranks. Overview explains the workflow and apply steps. Each gathering profession
+has searchable lists and detail sections for its own rules, sources, rewards and
+tools. Display units are seconds, metres and percentages; stored millisecond and
+basis-point conversions are handled by the editor. Weighted loot shows its real
+percentage of the enabled outcomes.
+
+1. Choose a profession and the relevant source/rules section.
+2. Edit the draft. New/duplicate, retire/enable and child-order controls operate
+   only on the draft. Item/NPC/zone selectors show names alongside permanent IDs.
+3. Use Validate to check all related definitions and actual runtime limits.
+4. Save all changes commits the related authored content in one transaction.
+5. Follow the apply guide, then export and commit the authored content diff.
+
+The common toolbar keeps Save, Revert/Reload, Validate and Export separate.
+Browsing and previews never write to the database. Changing a source reward can
+create its required resource mastery definition; the Resource mastery button
+opens XP targets and tier rewards. New item/NPC prototypes still use their own
+editors and normal deployment process.
 
 ## Author a recipe
 
@@ -28,7 +51,7 @@ The **Teaching Items** tab immediately lists existing manual items, including bo
 
 **New recipe-book item** asks for an existing supported manual as a template and opens a copied draft in Item Editor. Save that item normally, deploy its item data, then reload the crafting editor and assign its new ID. Copying does not automatically attach the original manual's crafting recipes to the new item.
 
-Item Editor includes a **Crafting & Mastery** reference panel at the bottom of its General panel. It lists saved recipe and gathering-mastery references and opens teaching assignments. Deleting an item used as an output, material, teaching manual, random bonus or gathering mastery resource is refused, including retired recipe references. The deletion transaction checks again to cover a concurrent new reference.
+Item Editor includes a **Crafting & Mastery** reference panel at the bottom of its General panel. It lists saved recipe, gathering mastery, source loot and tool references and opens teaching assignments. Deleting an item used as an output, material, teaching manual, random bonus, gathering mastery resource, node/herb/fishing loot, gathering tool, herb visual tool or required rod is refused, including retired recipe references. The deletion transaction checks again to cover a concurrent new reference.
 
 Item definitions still use the normal item pipeline. New items or changes to item type, enabled state, stackability or stack limit must also reach the running game's item prototypes. Merely assigning an existing suitable item as a teaching book needs no item-data export. After editing item definitions, reload crafting before making further catalogue changes.
 
@@ -44,7 +67,59 @@ Changing a bonus changes the bonus for characters who already earned that master
 
 ## Gathering mastery
 
-Open **Gathering mastery**, then search by resource name or item ID and filter Mining, Herbalism, Fishing or Wave Absorption. Each existing resource exposes XP per awarded item, all three cumulative targets and its per-tier rewards. Bonuses add together; use the Earned at column to select Bronze, Silver or Gold. Each tier contributes one Artisan Rank point. Resource sources, loot, profession assignment and availability are maintained separately and cannot be reassigned by this mastery panel.
+Open **Resources & mastery**, then search by resource name or item ID and filter Mining, Herbalism, Fishing or Wave Absorption. Create resource mastery for an existing valid item or select a source's Resource mastery action. Each resource exposes XP per awarded item, all three cumulative targets and its per-tier rewards. Bonuses add together; use the Earned at column to select Bronze, Silver or Gold. Each tier contributes one Artisan Rank point. The item/profession identity is permanent after publication. Availability derives from enabled sources; retire those sources while retaining mastery definitions and earned rewards. Sources and loot are authored on the corresponding gathering pages.
+
+## Mining and Wave Absorption
+
+Skill rules expose the cap, skill-chance floor/decline, yield scaling and passive
+speed/skill-rate settings. Sources bind one NPC prototype to a profession and
+configure required skill, base output, round duration and skill chance. Mining's
+reference hits and Wave's reference score mean the performance needed for the
+base payout, not a completion cap. Passive settings expose session duration,
+base tick interval and quantity. Carried tools have required skill and yield bonus.
+
+Wave sources also expose count-in, Perfect/Good windows and points, input cooldown,
+network grace, initial/final spacing and approach time, jitter and hold settings.
+Balance/timing preview evaluates the current draft at a chosen skill, score and
+tool bonus; Wave schedules can be rerolled without starting the game.
+
+Node loot is one weighted outcome. It applies to Wave active/passive and Mining
+passive; active Mining uses its single base output. It is not an independent
+extra-gem roll. Model profiles are imported from a matching LOD0 mesh bundle using
+the game checkout's `tools/gathering/ImportSurfaceProfile.py`. Import generates
+and validates draft geometry; normal Save publishes the profile. Deploy matching
+model assets separately. Reserved/inactive settings are identified rather than
+presented as effective gameplay controls.
+
+## Herbalism
+
+Populations expose zone, NPC, minimum and initial counts, replacement-delay range,
+background growth interval, required skill, base skill chance, harvest duration
+and the visual gathering tool. The visual tool is not an inventory requirement.
+Each population owns candidate sites and one weighted harvest table.
+
+Edit on map opens a draft-only map and synchronized coordinate grid. Right-click
+adds a site, drag moves it, the wheel zooms, and middle-drag pans. Exact X/Z,
+Y-layer, heading and enabled state remain editable in the grid. Candidate capacity
+must support minimum/initial counts. Initial count applies at server startup;
+it does not reset live plants when reloading.
+
+The server checks actual terrain/walkability and peace areas. A map marker alone
+does not prove accessibility. These candidate sites remain separate from static
+`t_npc_regen` rows.
+
+## Fishing
+
+Skill and rod selects the cap, chance floor/decline and required carried rod item.
+Waters expose zone/layer, name, surface height, casting distances, cast duration,
+bite-delay range, reaction window and skill chance. Each water has a weighted
+catch table and a union of polygon pieces. Map editing and the coordinate grid
+support adding/moving vertices and reordering polygon vertices. Boundaries must
+be simple, non-degenerate polygons with contiguous indices.
+
+Fishable boundaries describe existing world water; they do not create water or
+terrain. Fishing currently has no per-water minimum skill, bait or tool-upgrade
+bonus system. Rod models and animation behavior remain client assets/code.
 
 ## Maximum crafting skill
 
@@ -52,7 +127,7 @@ Open **Settings → Maximum crafting skill** to set the shared cap for Smithing,
 Alchemy and Cooking (default 50; supported range 1–65,535). **Save all changes**
 commits it with the recipe draft, and closing/reopening `/craft` refreshes it in
 the game without a rebuild or restart. Changing this setting participates in
-concurrent-edit detection and **Export mastery & crafting seeds**.
+concurrent-edit detection and **Export profession content**.
 
 Lowering the cap preserves characters' earned skills and stat points, even above
 the new limit. It stops further skill gains until their level is below the cap
@@ -61,24 +136,27 @@ and no-gain levels stay independent. Raise those endpoints for new training cont
 when needed; raising the global cap alone does not change a recipe's chances.
 **Validate / Overview** warns about recipes requiring a level above the current cap.
 
-The current editor requires migrations through 0036 and matching client/GameServer
+The current editor requires migrations through 0037 and matching client/GameServer
 builds. Subsequent cap edits are purely database driven.
 
 ## Save, reload and version control
 
-Saves affect these eleven **authored content** tables only:
+Saves affect these 23 **authored content** tables only:
 
 - `t_crafting_settings`
 - `t_crafting_recipe`, `t_crafting_ingredient`, `t_crafting_manual`, `t_crafting_bonus_output`
 - `t_crafting_mastery`, `t_crafting_mastery_bonus`
 - `t_crafting_master_rank`, `t_crafting_master_rank_bonus`
 - `t_gathering_material`, `t_gathering_material_bonus`
+- `t_gathering_settings`, `t_gathering_node`, `t_gathering_node_loot`, `t_gathering_tool`, `t_gathering_profile`
+- `t_herb_population`, `t_herb_spawn_point`, `t_herb_loot`
+- `t_fishing_settings`, `t_fishing_water`, `t_fishing_water_vertex`, `t_fishing_loot`
 
-The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All eleven tables must be InnoDB; unreviewed custom triggers are refused.
+The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 23 tables must be InnoDB; unreviewed custom triggers are refused.
 
-For edits that use already deployed item definitions and artwork, reopen `/craft` for recipes, `/gather` for gathering resource mastery, or `/artisan` for Artisan Ranks. No rebuild or server restart is needed for these catalogue changes. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
+For edits that use already deployed item definitions and artwork, reopen `/craft` for recipes, `/gather` for gathering resource mastery, or `/artisan` for Artisan Ranks. Ordinary catalogue tuning needs no rebuild or restart. Actual herb populations/sites/loot additionally require administrator `/herbpop reload`; changes to the enabled population ID/zone/NPC ownership set require GameServer restart. Static NPC placements and new prototypes follow their normal deployment path. The Overview apply guide explains these distinctions. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
 
-After Save, **Export mastery & crafting seeds** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these eleven tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
+After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 23 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
 
 Review and commit the resulting `x64-server/db/seeds/ep4_data` diff. Export new or changed `t_item` content separately, and promote exported client data into the game's authored asset tree. This button never exports player XP, learned recipes, earned ranks, inventory or character stat points.
 
@@ -93,3 +171,18 @@ The 100/60/20 chances and one stat point per crafting skill level are still engi
 See [CraftingVerification](../tests/CraftingVerification/README.md) for the isolated MariaDB suite and offline WinForms previews. No live game client is launched by that suite.
 
 For a later gameplay check, create a test recipe using deployed items, assign a supported manual, save, reopen `/craft`, use the manual, and verify the recipe/materials/timing. Craft through mastery and a rank threshold, then reopen the editor and confirm the saved values. This implementation was verified with database fixtures and offline UI rendering; no gameplay session was driven.
+
+## Scope and safeguards
+
+General item, NPC, shop and zone definitions remain in their existing editors,
+linked from profession entries. NPC Editor supplies appearance and static placements; converted sources use profession loot tables here, rather than legacy NPC product fields. This editor does not edit character skill, XP,
+inventory, learned recipes, earned Artisan ranks, live herb occupancy or active
+sessions. Published parent IDs and mastery identities remain stable. Removed
+child rows are reordered and validated before Save; deleted/retired source content
+does not delete player progression.
+
+Validation follows the running game's catalogue bounds, NPC flags, item types and
+stack limits, cross-profession mastery links, bonus-channel totals and geometry
+contracts. SQL accepting a value is not sufficient. Source geometry, actual terrain
+and deployed model compatibility still require the appropriate world/client tools
+and manual verification.

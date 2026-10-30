@@ -9,14 +9,14 @@ public sealed partial class CraftingMasteryEditor
     {
         if (!loaded || !CommitGrids()) return;
         if (dirty) { status.Text = "Save or revert the draft before exporting database content."; return; }
-        using var folder = new FolderBrowserDialog { Description = "Choose the game Git checkout for crafting seed export", UseDescriptionForTitle = true, InitialDirectory = exportCheckout ?? "" };
+        using var folder = new FolderBrowserDialog { Description = "Choose the game Git checkout for profession content export", UseDescriptionForTitle = true, InitialDirectory = exportCheckout ?? "" };
         if (folder.ShowDialog(this) != DialogResult.OK) return;
         exportCheckout = folder.SelectedPath;
         await RunAsync(async () => {
-            status.Text = "Verifying the database and exporting eight crafting content tables…";
+            status.Text = $"Verifying the database and exporting {CraftingRepository.Tables.Length} profession content tables…";
             string connection = ConnectionString(main), locale = main.pSettings.WorkLocale, expected = original.Fingerprint();
             await Task.Run(() => CraftingSeedExport.Export(exportCheckout, connection, locale, expected));
-            status.Text = "Exported eight crafting seeds into the game checkout. Review and commit that Git diff; new item definitions need their separate item export.";
+            status.Text = $"Exported {CraftingRepository.Tables.Length} profession content tables. Review and commit the Git diff; item definitions and assets use their normal export/deployment.";
         });
     }
     private void ChooseEmblem(MastersRank rank)

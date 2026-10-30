@@ -1,7 +1,8 @@
 # Transactional content storage and version control
 
-ToolBoxNG saves edit the running database. Saving does **not** create a Git commit,
-and there is no automatic export of those edits into the game repository.
+ToolBoxNG saves edit the running database. Saving does **not** create a Git commit.
+Use **Record content changes** in the main window to record outstanding saved
+content in the game repository. The manual export workflow remains available.
 
 ## Storage prerequisite
 
@@ -62,6 +63,57 @@ copy whose actions target the wrong table. Its loader and write actions are
 disabled with a visible explanation. Implementing quest editing is separate work.
 
 ## Versioning editor changes
+
+### One-click recording
+
+In the main window's **Content version control** panel, use **Choose game
+checkout…** once. Select the game Git checkout root, not the Toolbox repository
+or assembled client directory. Its path is saved in the local `Settings.ini`
+under `[ContentVersioning] GameCheckout`; no credentials are added to Git.
+
+After saving edits in any editor, click **Record content changes**. It also
+captures saved SQL edits made outside the Toolbox. Unsaved editor drafts are not
+included. The button:
+
+1. Verifies the selected checkout, named branch, Git identity and database identity.
+2. Takes one consistent copy of the 118 reviewed authored tables. Player,
+   account, inventory, progression and log tables are excluded. Runtime columns
+   in the five mixed tables are normalized only in temporary copies.
+3. Runs the game's deterministic seed exporter against that copy. Only tables
+   that differ from the current Git commit are candidates for publication.
+4. Regenerates the affected shipping client data and localized strings from the
+   same copy, using the configured client as read-only input where needed.
+5. Creates one local content commit containing only changed seeds and client
+   outputs. If nothing changed, it makes no commit.
+
+Nothing is pushed, merged, applied to the database or copied into the running
+client. The normal game asset assembly and database deployment workflows still
+apply after reviewing the commit. The button does not version arbitrary edited
+textures/models or schema changes; those still use their normal Git workflows.
+
+Unrelated staged, unstaged and untracked work is preserved. Existing edits to
+an output file that needs replacement cause a clear refusal; commit or move
+those edits aside first. Branch changes during generation also cause a refusal.
+Git hooks, signing and identity settings apply normally. Git LFS must be installed
+for client outputs; recording acquires and releases only its own asset locks.
+Generation failures leave the checkout untouched. Commit failures restore this
+operation's files and index entries when they have not changed concurrently;
+concurrent edits are preserved and any paths needing attention are reported.
+
+This first implementation supports the local Docker MariaDB instance, with the
+Toolbox connected as `root` to `ep4_data`. The game checkout must contain the
+snapshot-capable `export-seed.sh` (`--capabilities` lists
+`immutable-source-prefix` and `explicit-empty-snapshot`). Docker and Git for
+Windows must be available. A mismatched database, unsupported remote connection,
+missing content table or unreviewed seed table stops recording before publication.
+These restrictions do not affect ordinary editor saves.
+
+The recording tests use disposable databases and temporary Git repositories;
+see `tests/ContentDatabaseVerification`, `tests/ContentGitVerification`,
+`tests/ContentClientVerification`, `tests/ContentRecordingVerification` and
+`tests/ContentRecordingUiVerification`.
+
+### Manual recording
 
 After a content-editing session, export the affected database tables into the
 **game repository**, review the diff, then commit the seeds. In Git Bash from

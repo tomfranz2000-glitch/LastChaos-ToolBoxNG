@@ -75,10 +75,10 @@ namespace LastChaos_ToolBoxNG
 			rbExportToLocalFolder.Checked = !exportToClientFolder;
 			rbExportToClient.Checked = exportToClientFolder;
 
-			pMain.Logger(LogTypes.Message, "Exporting: Skills.lod file...");
+			LogExport(LogTypes.Message, "Exporting: Skills.lod file...");
 			ExportSKILLSAsync("Skills");
 			await Task.WhenAll(ExportTasks);
-			pMain.Logger(LogTypes.Success, "Skills.lod has been Exported.");
+			LogExport(LogTypes.Success, "Skills.lod has been Exported.");
 		}
 
 		private void Exporter_Load(object sender, EventArgs e)
@@ -159,6 +159,7 @@ namespace LastChaos_ToolBoxNG
 
 		private void Exporter_FormClosing(object sender, FormClosingEventArgs e)
 		{
+			if (IsRecording) return;
 			FileIniDataParser pParser = new();
 			IniData pData = pParser.ReadFile(pMain.pSettings.SettingsFile);
 			string strState;
@@ -207,7 +208,7 @@ namespace LastChaos_ToolBoxNG
 			/****************************************/
 			strState = "false";
 
-			if (rbExportToLocalFolder.Checked)
+			if (ExportToLocalFolder)
 				strState = "true";
 
 			pMain.pSettings.ExportToLocal = rbExportToLocalFolder.Checked;
@@ -264,7 +265,6 @@ namespace LastChaos_ToolBoxNG
 						throw new InvalidDataException($"String row {row[indexColumn]}, column {column} exceeds the client's {maxTextBytes}-byte text limit. Shorten it before exporting.");
 		}
 		/****************************************/
-#if USE_ORIGINAL_SKILL_CALCULATESUM_AND_END_TAG
 		private void CalculateSum(string strFilePath)
 		{
 			using (FileStream Stream = new(strFilePath, FileMode.Open, FileAccess.ReadWrite))
@@ -273,11 +273,11 @@ namespace LastChaos_ToolBoxNG
 				byte[] sBuffer = new byte[4];
 				long lFileSize = Stream.Length;
 
-				for (long i = 0; i < lFileSize - 1; i += Defs.JUMPSIZE)
+				for (long i = 0; i < (IsRecording ? lFileSize : lFileSize - 1); i += Defs.JUMPSIZE)
 				{
 					Stream.Seek(i, SeekOrigin.Begin);
 
-					Stream.Read(sBuffer, 0, 4);
+					Stream.ReadExactly(sBuffer, 0, (int)Math.Min(4, lFileSize - i));
 
 					nFileSum += BitConverter.ToInt32(sBuffer, 0);
 				}
@@ -287,7 +287,6 @@ namespace LastChaos_ToolBoxNG
 				Stream.Write(BitConverter.GetBytes(nFileSum), 0, 4);    // Write File Checksum
 			}
 		}
-#endif
 		/****************************************/
 		private static SMCData ParseSMC(string strFilePath)
 		{
@@ -397,7 +396,7 @@ namespace LastChaos_ToolBoxNG
 									{
 										if (clbNationsSelector.GetItemChecked(j))
 										{
-											pMain.Logger(LogTypes.Message, $"Exporting: {strFileName}_{pKey.Key}.lod file...");
+											LogExport(LogTypes.Message, $"Exporting: {strFileName}_{pKey.Key}.lod file...");
 
 											pFunc.Invoke(this, new object[] { strFileName, pKey.Key.ToLower() });
 										}
@@ -410,13 +409,13 @@ namespace LastChaos_ToolBoxNG
 								{
 									if (strLodType == "SHOPS")
 									{
-										pMain.Logger(LogTypes.Warning, $"Exporting: {strFileName}.lod (With USA for a_national (t_itemshop) as argument) file...");
+										LogExport(LogTypes.Warning, $"Exporting: {strFileName}.lod (With USA for a_national (t_itemshop) as argument) file...");
 
 										pFunc.Invoke(this, new object[] { strFileName, "USA" });	// Hardcode!
 									}
 									else
 									{
-										pMain.Logger(LogTypes.Message, $"Exporting: {strFileName}.lod file...");
+										LogExport(LogTypes.Message, $"Exporting: {strFileName}.lod file...");
 
 										pFunc.Invoke(this, new object[] { strFileName });
 									}
@@ -435,14 +434,14 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				long lFiltered = lTotalElapsedTime / 1000;
 			
-				pMain.Logger(LogTypes.Success, $"Export all Files Took: {(lFiltered / 60)}:{(lFiltered % 60)}.{lTotalElapsedTime}ms.");
+				LogExport(LogTypes.Success, $"Export all Files Took: {(lFiltered / 60)}:{(lFiltered % 60)}.{lTotalElapsedTime}ms.");
 #else
-				pMain.Logger(LogTypes.Success, "All Files has been Exported.");
+				LogExport(LogTypes.Success, "All Files has been Exported.");
 #endif
 			}
 			catch (Exception ex)
 			{
-				pMain.Logger(LogTypes.Error, $"Export failed: {ex.Message}");
+				LogExport(LogTypes.Error, $"Export failed: {ex.Message}");
 				MessageBox.Show(this, $"One or more files could not be exported.\n\n{ex.Message}", "Export failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
 			}
 			finally
@@ -462,10 +461,10 @@ namespace LastChaos_ToolBoxNG
 #endif
 				int i = 0;
 				List<string> listColumns = new();
-				string strFilePath = pMain.pSettings.ClientPath + "\\";
+				string strFilePath = ExportClientRoot + "\\";
 				Defs.NationCharSetNPostfix pNationCharsetNPostfix = Defs.NationsCharsetsNPostfix[strNation];
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "";
 
 				strFilePath = strFilePath + $"Local\\{pNationCharsetNPostfix.Postfix}\\String";
@@ -475,7 +474,7 @@ namespace LastChaos_ToolBoxNG
 
 				strFilePath += $"\\{StringTypeData.FileName}_{pNationCharsetNPostfix.Postfix}.lod";
 
-				pMain.Logger(LogTypes.Message, $"Exporting: {StringTypeData.FileName}_{pNationCharsetNPostfix.Postfix}.lod file...");
+				LogExport(LogTypes.Message, $"Exporting: {StringTypeData.FileName}_{pNationCharsetNPostfix.Postfix}.lod file...");
 
 				foreach (string strColumnName in StringTypeData.Columns) // Iterate over each column
 				{
@@ -487,7 +486,7 @@ namespace LastChaos_ToolBoxNG
 					i++;
 				}
 
-				using DataTable? pTable = pMain.QuerySelect(pNationCharsetNPostfix.Charset, $"{StringTypeData.Clause} {string.Join(", ", listColumns)} FROM {pMain.pSettings.DBData}.{StringTypeData.TableName} {StringTypeData.Condition} ORDER BY {StringTypeData.Columns[0]}");
+				using DataTable? pTable = QueryForExport(pNationCharsetNPostfix.Charset, $"{StringTypeData.Clause} {string.Join(", ", listColumns)} FROM {ExportDatabase}.{StringTypeData.TableName} {StringTypeData.Condition} ORDER BY {StringTypeData.Columns[0]}");
 				if (pTable != null)
 				{
 					// Validate the whole table before File.Create can replace a previously working export.
@@ -511,9 +510,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -529,25 +528,25 @@ namespace LastChaos_ToolBoxNG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
-				string strQuery = $"SELECT a_index, a_job_flag, a_weight, a_fame, a_level, a_flag, a_wearing, a_type_idx, a_subtype_idx, a_need_item0, a_need_item1, a_need_item2, a_need_item3, a_need_item4, a_need_item5, a_need_item6, a_need_item7, a_need_item8, a_need_item9, a_need_item_count0, a_need_item_count1, a_need_item_count2, a_need_item_count3, a_need_item_count4, a_need_item_count5, a_need_item_count6, a_need_item_count7, a_need_item_count8, a_need_item_count9, a_need_sskill, a_need_sskill_level, a_need_sskill2, a_need_sskill_level2, a_texture_id, a_texture_row, a_texture_col, a_num_0, a_num_1, a_num_2, a_num_3, a_price, a_set_0, a_set_1, a_set_2, a_set_3, a_set_4, a_file_smc, a_effect_name, a_attack_effect_name, a_damage_effect_name, a_rare_index_0, a_rare_prob_0, a_rare_index_0, a_rare_index_1, a_rare_index_2, a_rare_index_3, a_rare_index_4, a_rare_index_5, a_rare_index_6, a_rare_index_7, a_rare_index_8, a_rare_index_9, a_rare_prob_0, a_rare_prob_1, a_rare_prob_2, a_rare_prob_3, a_rare_prob_4, a_rare_prob_5, a_rare_prob_6, a_rare_prob_7, a_rare_prob_8, a_rare_prob_9, a_rvr_value, a_rvr_grade, a_castle_war FROM {pMain.pSettings.DBData}.t_item WHERE a_zone_flag=1023 AND a_enable=1 ORDER by a_index;";
+				string strQuery = $"SELECT a_index, a_job_flag, a_weight, a_fame, a_level, a_flag, a_wearing, a_type_idx, a_subtype_idx, a_need_item0, a_need_item1, a_need_item2, a_need_item3, a_need_item4, a_need_item5, a_need_item6, a_need_item7, a_need_item8, a_need_item9, a_need_item_count0, a_need_item_count1, a_need_item_count2, a_need_item_count3, a_need_item_count4, a_need_item_count5, a_need_item_count6, a_need_item_count7, a_need_item_count8, a_need_item_count9, a_need_sskill, a_need_sskill_level, a_need_sskill2, a_need_sskill_level2, a_texture_id, a_texture_row, a_texture_col, a_num_0, a_num_1, a_num_2, a_num_3, a_price, a_set_0, a_set_1, a_set_2, a_set_3, a_set_4, a_file_smc, a_effect_name, a_attack_effect_name, a_damage_effect_name, a_rare_index_0, a_rare_prob_0, a_rare_index_0, a_rare_index_1, a_rare_index_2, a_rare_index_3, a_rare_index_4, a_rare_index_5, a_rare_index_6, a_rare_index_7, a_rare_index_8, a_rare_index_9, a_rare_prob_0, a_rare_prob_1, a_rare_prob_2, a_rare_prob_3, a_rare_prob_4, a_rare_prob_5, a_rare_prob_6, a_rare_prob_7, a_rare_prob_8, a_rare_prob_9, a_rvr_value, a_rvr_grade, a_castle_war FROM {ExportDatabase}.t_item WHERE a_zone_flag=1023 AND a_enable=1 ORDER by a_index;";
 #else
-				string strQuery = $"SELECT a_index, a_job_flag, a_weight, a_fame, a_level, a_flag, a_wearing, a_type_idx, a_subtype_idx, a_need_item0, a_need_item1, a_need_item2, a_need_item3, a_need_item4, a_need_item5, a_need_item6, a_need_item7, a_need_item8, a_need_item9, a_need_item_count0, a_need_item_count1, a_need_item_count2, a_need_item_count3, a_need_item_count4, a_need_item_count5, a_need_item_count6, a_need_item_count7, a_need_item_count8, a_need_item_count9, a_need_sskill, a_need_sskill_level, a_texture_id, a_texture_row, a_texture_col, a_num_0, a_num_1, a_num_2, a_num_3, a_price, a_set_0, a_set_1, a_set_2, a_set_3, a_set_4, a_file_smc, a_effect_name, a_attack_effect_name, a_damage_effect_name, a_rare_index_0, a_rare_prob_0, a_rare_index_0, a_rare_index_1, a_rare_index_2, a_rare_index_3, a_rare_index_4, a_rare_index_5, a_rare_index_6, a_rare_index_7, a_rare_index_8, a_rare_index_9, a_rare_prob_0, a_rare_prob_1, a_rare_prob_2, a_rare_prob_3, a_rare_prob_4, a_rare_prob_5, a_rare_prob_6, a_rare_prob_7, a_rare_prob_8, a_rare_prob_9, a_rvr_value, a_rvr_grade, a_castle_war FROM {pMain.pSettings.DBData}.t_item WHERE a_enable=1 ORDER by a_index;";
+				string strQuery = $"SELECT a_index, a_job_flag, a_weight, a_fame, a_level, a_flag, a_wearing, a_type_idx, a_subtype_idx, a_need_item0, a_need_item1, a_need_item2, a_need_item3, a_need_item4, a_need_item5, a_need_item6, a_need_item7, a_need_item8, a_need_item9, a_need_item_count0, a_need_item_count1, a_need_item_count2, a_need_item_count3, a_need_item_count4, a_need_item_count5, a_need_item_count6, a_need_item_count7, a_need_item_count8, a_need_item_count9, a_need_sskill, a_need_sskill_level, a_texture_id, a_texture_row, a_texture_col, a_num_0, a_num_1, a_num_2, a_num_3, a_price, a_set_0, a_set_1, a_set_2, a_set_3, a_set_4, a_file_smc, a_effect_name, a_attack_effect_name, a_damage_effect_name, a_rare_index_0, a_rare_prob_0, a_rare_index_0, a_rare_index_1, a_rare_index_2, a_rare_index_3, a_rare_index_4, a_rare_index_5, a_rare_index_6, a_rare_index_7, a_rare_index_8, a_rare_index_9, a_rare_prob_0, a_rare_prob_1, a_rare_prob_2, a_rare_prob_3, a_rare_prob_4, a_rare_prob_5, a_rare_prob_6, a_rare_prob_7, a_rare_prob_8, a_rare_prob_9, a_rvr_value, a_rvr_grade, a_castle_war FROM {ExportDatabase}.t_item WHERE a_enable=1 ORDER by a_index;";
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 				byte sCastleWar;
 				int nItemID, nFortuneIndex;
 				DataTable? pTableItems, pTableFortune;
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				pTableItems = pMain.QuerySelect("utf8", strQuery);  // Hardcode!
+				pTableItems = QueryForExport("utf8", strQuery);  // Hardcode!
 				if (pTableItems != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -578,6 +577,12 @@ namespace LastChaos_ToolBoxNG
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							Stream.Write(Convert.ToInt32(pRow["a_need_sskill2"]));
 							Stream.Write(Convert.ToInt32(pRow["a_need_sskill_level2"]));
+#else
+							if (IsRecording)
+							{
+								Stream.Write(Convert.ToInt32(pRow["a_need_sskill2"]));
+								Stream.Write(Convert.ToInt32(pRow["a_need_sskill_level2"]));
+							}
 #endif
 							Stream.Write(Convert.ToInt32(pRow["a_texture_id"]));
 							Stream.Write(Convert.ToInt32(pRow["a_texture_row"]));
@@ -612,7 +617,7 @@ namespace LastChaos_ToolBoxNG
 							sCastleWar = Convert.ToByte(pRow["a_castle_war"]);
 							nFortuneIndex = 0;
 
-							pTableFortune = pMain.QuerySelect("utf8", $"SELECT COUNT(*) FROM {pMain.pSettings.DBData}.t_fortune_data WHERE a_item_idx={nItemID} ORDER BY a_skill_index, a_skill_level LIMIT 1;", (pMain.pSettings.LogVerbose < 2 ? false : true));  // Hardcode!
+							pTableFortune = QueryForExport("utf8", $"SELECT COUNT(*) FROM {ExportDatabase}.t_fortune_data WHERE a_item_idx={nItemID} ORDER BY a_skill_index, a_skill_level LIMIT 1;", (ExportLogVerbosity < 2 ? false : true));  // Hardcode!
 							if (pTableFortune != null)
 							{
 								if (Convert.ToInt32(pTableFortune.Rows[0]["COUNT(*)"]) > 0)
@@ -622,7 +627,7 @@ namespace LastChaos_ToolBoxNG
 							}
 							else
 							{
-								pMain.Logger(LogTypes.Error, $"Exporter > Error while exporting: {strFileName}, Missing Fortune Data for Item: {nItemID}.");
+								LogExport(LogTypes.Error, $"Exporter > Error while exporting: {strFileName}, Missing Fortune Data for Item: {nItemID}.");
 							}
 
 							Stream.Write(nFortuneIndex);    // Write Fortune "ID"
@@ -637,9 +642,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -654,18 +659,18 @@ namespace LastChaos_ToolBoxNG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
 				DataRow[] pRow;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_type, a_giftindex FROM {pMain.pSettings.DBData}.t_moonstone_reward WHERE a_type IN({string.Join(", ", Defs.MoonStonesNamesNIDS.Values)});");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_type, a_giftindex FROM {ExportDatabase}.t_moonstone_reward WHERE a_type IN({string.Join(", ", Defs.MoonStonesNamesNIDS.Values)});");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -687,9 +692,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -724,7 +729,7 @@ namespace LastChaos_ToolBoxNG
 				];
 
 				int i, nCoinCount, nPrizeCount;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 				string[] strCoinRequiredID, strCoinAddCount, strReward;
 #if EXPORT_LACARETTES_FILES_FOR_EACH_LANGUAGE
 				NationCharSetNPostfix pNationCharsetNPostfix = Defs.NationsCharsetsNPostfix[strNation.ToUpper()];
@@ -732,10 +737,10 @@ namespace LastChaos_ToolBoxNG
 				string strNation = "usa";	// Hardcode!
 				Defs.NationCharSetNPostfix pNationCharsetNPostfix = Defs.NationsCharsetsNPostfix[strNation.ToUpper()];
 #endif
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect(pNationCharsetNPostfix.Charset, $"SELECT a_index, a_name_{strNation}, a_useCoinCount, a_coinIndex, a_coinDefCount, a_coinAddCount, a_giveItem_1, a_giveItem_2, a_giveItem_3, a_giveItem_4, a_giveItem_5, a_giveItem_6, a_giveItem_7, a_giveItem_8, a_giveItem_9, a_giveItem_10 FROM {pMain.pSettings.DBData}.t_lacarette WHERE a_enable=1 ORDER BY a_index;");
+				DataTable? pTable = QueryForExport(pNationCharsetNPostfix.Charset, $"SELECT a_index, a_name_{strNation}, a_useCoinCount, a_coinIndex, a_coinDefCount, a_coinAddCount, a_giveItem_1, a_giveItem_2, a_giveItem_3, a_giveItem_4, a_giveItem_5, a_giveItem_6, a_giveItem_7, a_giveItem_8, a_giveItem_9, a_giveItem_10 FROM {ExportDatabase}.t_lacarette WHERE a_enable=1 ORDER BY a_index;");
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
@@ -743,7 +748,7 @@ namespace LastChaos_ToolBoxNG
 #if EXPORT_LACARETTES_FILES_FOR_EACH_LANGUAGE
 					strFilePath += $"\\{strFileName}_{pNationCharsetNPostfix.Postfix}.lod";
 #else
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 #endif
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -796,9 +801,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -813,24 +818,24 @@ namespace LastChaos_ToolBoxNG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
 				int nItemID;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 				Defs.NationCharSetNPostfix pNationCharsetNPostfix = Defs.NationsCharsetsNPostfix[strNation.ToUpper()];
 				DataTable? pTableCatalog, pTableCTItem;
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
-				string strQuery = $"SELECT a_ctid, a_category, a_cash, a_mileage, a_flag, a_enable, a_ctname_{strNation}, a_ctdesc_{strNation}, a_icon FROM {pMain.pSettings.DBData}.t_catalog WHERE a_enable=1 ORDER BY a_ctid ASC;";
+				string strQuery = $"SELECT a_ctid, a_category, a_cash, a_mileage, a_flag, a_enable, a_ctname_{strNation}, a_ctdesc_{strNation}, a_icon FROM {ExportDatabase}.t_catalog WHERE a_enable=1 ORDER BY a_ctid ASC;";
 #else
-				string strQuery = $"SELECT a_ctid, a_category, a_cash, a_mileage, a_flag, a_enable, a_ctname_{strNation}, a_ctdesc_{strNation}, a_icon FROM {pMain.pSettings.DBData}.t_catalog WHERE a_enable=1 ORDER BY a_dummy DESC, a_ctid ASC;";
+				string strQuery = $"SELECT a_ctid, a_category, a_cash, a_mileage, a_flag, a_enable, a_ctname_{strNation}, a_ctdesc_{strNation}, a_icon FROM {ExportDatabase}.t_catalog WHERE a_enable=1 ORDER BY a_dummy DESC, a_ctid ASC;";
 #endif
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				pTableCatalog = pMain.QuerySelect(pNationCharsetNPostfix.Charset, strQuery);
+				pTableCatalog = QueryForExport(pNationCharsetNPostfix.Charset, strQuery);
 				if (pTableCatalog != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName} _{strNation.ToLower()}.lod";
+					strFilePath = IsRecording ? ExportDataFilePath(strFilePath, strFileName) : strFilePath + $"\\{strFileName} _{strNation.ToLower()}.lod";
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -844,13 +849,17 @@ namespace LastChaos_ToolBoxNG
 							Stream.Write(Convert.ToInt32(pRow["a_category"]));
 							Stream.Write(Convert.ToInt32(pRow["a_cash"]));
 							Stream.Write(Convert.ToInt32(pRow["a_mileage"]));
-							Stream.Write(Convert.ToInt32(pRow["a_flag"]));
-							Stream.Write(Convert.ToByte(pRow["a_enable"]));
+							if (IsRecording) foreach (string column in new[] { "a_texture_id", "a_texture_row", "a_texture_col" }) Stream.Write(Convert.ToInt32(pRow[column]));
+							if (!IsRecording)
+							{
+								Stream.Write(Convert.ToInt32(pRow["a_flag"]));
+								Stream.Write(Convert.ToByte(pRow["a_enable"]));
+							}
 
 							WriteLengthNText(Stream, pRow["a_ctname_" + strNation].ToString() ?? string.Empty, 0, typeof(int));
 							WriteLengthNText(Stream, pRow["a_ctdesc_" + strNation].ToString() ?? string.Empty, 0, typeof(int));
 
-							pTableCTItem = pMain.QuerySelect("utf8", $"SELECT a_item_idx, a_item_flag, a_item_plus, a_item_option, a_item_num FROM {pMain.pSettings.DBData}.t_ct_item WHERE a_ctid={nItemID} ORDER BY a_index;", (pMain.pSettings.LogVerbose < 2 ? false : true));   // Hardcode!
+							pTableCTItem = QueryForExport("utf8", $"SELECT a_item_idx, a_item_flag, a_item_plus, a_item_option, a_item_num FROM {ExportDatabase}.t_ct_item WHERE a_ctid={nItemID} ORDER BY a_index;", (ExportLogVerbosity < 2 ? false : true));   // Hardcode!
 							if (pTableCTItem != null)
 							{
 								Stream.Write(pTableCTItem.Rows.Count);
@@ -868,10 +877,10 @@ namespace LastChaos_ToolBoxNG
 							}
 							else
 							{
-								pMain.Logger(LogTypes.Error, $"Exporter > Error while exporting: {strFileName}_{strNation.ToLower()}, Missing Catalog Items for Catalog: {nItemID}.");
+								LogExport(LogTypes.Error, $"Exporter > Error while exporting: {strFileName}_{strNation.ToLower()}, Missing Catalog Items for Catalog: {nItemID}.");
 							}
 
-							Stream.Write(Convert.ToInt32(pRow["a_icon"]));
+							if (!IsRecording) Stream.Write(Convert.ToInt32(pRow["a_icon"]));
 						}
 					}
 
@@ -882,9 +891,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -899,19 +908,19 @@ namespace LastChaos_ToolBoxNG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
 				int i = 0, j, k, nDiff, nDiffCount, nItemID, nExpectedItemID = 1;
-				string strSMCFilePath, strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strSMCFilePath, strFilePath = ExportClientRoot + "\\Data";
 				StringBuilder strBuilder = new();
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_file_smc FROM {pMain.pSettings.DBData}.t_item ORDER BY a_index ASC");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_file_smc FROM {ExportDatabase}.t_item ORDER BY a_index ASC");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -936,7 +945,7 @@ namespace LastChaos_ToolBoxNG
 								}
 							}
 
-							strSMCFilePath = pMain.pSettings.ClientPath + "\\" + pRow["a_file_smc"];
+							strSMCFilePath = InputSmcPath(pRow["a_file_smc"].ToString() ?? string.Empty);
 
 							if (File.Exists(strSMCFilePath))
 							{
@@ -971,6 +980,8 @@ namespace LastChaos_ToolBoxNG
 							}
 							else
 							{
+								if (IsRecording && !string.IsNullOrWhiteSpace(pRow["a_file_smc"].ToString()) && !string.Equals(pRow["a_file_smc"].ToString(), "none", StringComparison.OrdinalIgnoreCase))
+									throw new FileNotFoundException($"Item {nItemID} needs its configured SMC source before client data can be recorded.", strSMCFilePath);
 								strBuilder.Append($"\nItem ID: {nItemID} > {strSMCFilePath} Not exist!");
 
 								Stream.Write(0);    // Write Item ID null
@@ -981,7 +992,7 @@ namespace LastChaos_ToolBoxNG
 						}
 					}
 
-					pMain.Logger(LogTypes.Warning, "SMC Exporter > " + strBuilder.ToString());
+					LogExport(LogTypes.Warning, "SMC Exporter > " + strBuilder.ToString());
 
 					pTable.Dispose();
 				}
@@ -990,9 +1001,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1006,18 +1017,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_nas, a_texture_id, a_texture_row, a_texture_col, a_point FROM {pMain.pSettings.DBData}.t_missioncase WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_nas, a_texture_id, a_texture_row, a_texture_col, a_point FROM {ExportDatabase}.t_missioncase WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1032,6 +1043,8 @@ namespace LastChaos_ToolBoxNG
 							Stream.Write(Convert.ToInt32(pRow["a_texture_col"]));
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							Stream.Write(0);
+#else
+							if (IsRecording) Stream.Write((byte)0);
 #endif
 							Stream.Write(Convert.ToInt32(pRow["a_point"]));
 						}
@@ -1044,9 +1057,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1060,18 +1073,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_npc_index, a_result_itemIndex AS result_itemIndex, a_result_itemCount AS result_itemCount, source_itemIndex0, source_itemCount0, source_itemIndex1, source_itemCount1, source_itemIndex2, source_itemCount2, source_itemIndex3, source_itemCount3, source_itemIndex4, source_itemCount4 FROM {pMain.pSettings.DBData}.t_item_exchange WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_npc_index, a_result_itemIndex AS result_itemIndex, a_result_itemCount AS result_itemCount, source_itemIndex0, source_itemCount0, source_itemIndex1, source_itemCount1, source_itemIndex2, source_itemCount2, source_itemIndex3, source_itemCount3, source_itemIndex4, source_itemCount4 FROM {ExportDatabase}.t_item_exchange WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1100,9 +1113,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1116,18 +1129,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_type, a_level0_need_level, a_level0_need_sp, a_level1_need_level, a_level1_need_sp, a_level2_need_level, a_level2_need_sp, a_level3_need_level, a_level3_need_sp, a_level4_need_level, a_level4_need_sp, a_need_sskill, a_need_sskill_level, a_max_level, a_preference, a_texture_id, a_texture_row, a_texture_col FROM {pMain.pSettings.DBData}.t_special_skill WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_type, a_level0_need_level, a_level0_need_sp, a_level1_need_level, a_level1_need_sp, a_level2_need_level, a_level2_need_sp, a_level3_need_level, a_level3_need_sp, a_level4_need_level, a_level4_need_sp, a_need_sskill, a_need_sskill_level, a_max_level, a_preference, a_texture_id, a_texture_row, a_texture_col FROM {ExportDatabase}.t_special_skill WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1161,9 +1174,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1181,29 +1194,29 @@ namespace LastChaos_ToolBoxNG
 				int nSkillID, nMagicID, nDamageType;
 				DataTable? pTableSkills, pTableSkillLevels, pCombinedTable;
 				sbyte sbAttackSubType, sbAttackPower, sbDefenseSubType, sbDefensePower;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				pTableSkills = pMain.QuerySelect("utf8", $"SELECT a_index, a_job, a_job2, a_apet_index, a_type, a_flag, a_sorcerer_flag, a_maxLevel, a_appRange, a_fireRange, " +
+				pTableSkills = QueryForExport("utf8", $"SELECT a_index, a_job, a_job2, a_apet_index, a_type, a_flag, a_sorcerer_flag, a_maxLevel, a_appRange, a_fireRange, " +
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 					$"a_fireRange2, " +
 #endif
-					$"a_targetType, a_useState, a_useWeaponType0, a_useWeaponType1, a_useMagicIndex1, a_useMagicLevel1, a_useMagicIndex2, a_useMagicLevel2, a_useMagicIndex3, a_useMagicLevel3, a_soul_consum, a_appState, a_readyTime, a_stillTime, a_fireTime, a_reuseTime, a_cd_ra, a_cd_re, a_cd_sa, a_cd_fa, a_cd_fe0, a_cd_fe1, a_cd_fe2, a_cd_fot, a_cd_fos, a_cd_ox, a_cd_oz, a_cd_oh, a_cd_oc, a_cd_fdc, a_cd_fd0, a_cd_fd1, a_cd_fd2, a_cd_fd3, a_cd_dd, a_cd_ra2, a_cd_re2, a_cd_sa2, a_cd_fa2, a_cd_fe3, a_cd_fe4, a_cd_fe5, a_cd_fot2, a_cd_fos2, a_cd_ox2, a_cd_oz2, a_cd_oh2, a_cd_oc2, a_cd_fdc2, a_cd_fd4, a_cd_fd5, a_cd_fd6, a_cd_fd7, a_cd_dd2, a_cd_fe_after, a_client_icon_texid, a_client_icon_row, a_client_icon_col FROM {pMain.pSettings.DBData}.t_skill WHERE a_job>=0 ORDER BY a_index;");  // Hardcode!
+					$"a_targetType, a_useState, a_useWeaponType0, a_useWeaponType1, a_useMagicIndex1, a_useMagicLevel1, a_useMagicIndex2, a_useMagicLevel2, a_useMagicIndex3, a_useMagicLevel3, a_soul_consum, a_appState, a_readyTime, a_stillTime, a_fireTime, a_reuseTime, a_cd_ra, a_cd_re, a_cd_sa, a_cd_fa, a_cd_fe0, a_cd_fe1, a_cd_fe2, a_cd_fot, a_cd_fos, a_cd_ox, a_cd_oz, a_cd_oh, a_cd_oc, a_cd_fdc, a_cd_fd0, a_cd_fd1, a_cd_fd2, a_cd_fd3, a_cd_dd, a_cd_ra2, a_cd_re2, a_cd_sa2, a_cd_fa2, a_cd_fe3, a_cd_fe4, a_cd_fe5, a_cd_fot2, a_cd_fos2, a_cd_ox2, a_cd_oz2, a_cd_oh2, a_cd_oc2, a_cd_fdc2, a_cd_fd4, a_cd_fd5, a_cd_fd6, a_cd_fd7, a_cd_dd2, a_cd_fe_after, a_client_icon_texid, a_client_icon_row, a_client_icon_col FROM {ExportDatabase}.t_skill WHERE a_job>=0 ORDER BY a_index;");  // Hardcode!
 				if (pTableSkills != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 						Stream.Write(Convert.ToInt32(pTableSkills.AsEnumerable().LastOrDefault()?["a_index"]));  // Write Last Row ID
 #else
-						Stream.Write(pTableSkills.Rows.Count);
+						Stream.Write(IsRecording ? Convert.ToInt32(pTableSkills.AsEnumerable().LastOrDefault()?["a_index"]) : pTableSkills.Rows.Count);
 #endif
 
 						foreach (DataRow pSkillRow in pTableSkills.Rows)
@@ -1222,6 +1235,8 @@ namespace LastChaos_ToolBoxNG
 							Stream.Write(Convert.ToSingle(pSkillRow["a_fireRange"]));
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							Stream.Write(Convert.ToSingle(pSkillRow["a_fireRange2"]));
+#else
+							if (IsRecording) Stream.Write(Convert.ToSingle(pSkillRow["a_fireRange2"]));
 #endif
 							Stream.Write(Convert.ToByte(pSkillRow["a_targetType"]));
 							Stream.Write(Convert.ToInt32(pSkillRow["a_useState"]));
@@ -1289,9 +1304,11 @@ namespace LastChaos_ToolBoxNG
 							Stream.Write(Convert.ToInt32(pSkillRow["a_client_icon_row"]));
 							Stream.Write(Convert.ToInt32(pSkillRow["a_client_icon_col"]));
 
-							pTableSkillLevels = pMain.QuerySelect("utf8", $"SELECT a_needHP, a_needMP, a_needGP, a_durtime, a_dummypower, a_needItemIndex1, a_needItemCount1, a_needItemIndex2, a_needItemCount2, a_learnLevel, a_learnSP, a_learnSkillIndex1, a_learnSkillLevel1, a_learnSkillIndex2, a_learnSkillLevel2, a_learnSkillIndex3, a_learnSkillLevel3, a_learnItemIndex1, a_learnItemCount1, a_learnItemIndex2, a_learnItemCount2, a_learnItemIndex3, a_learnItemCount3, a_learnstr, a_learndex, a_learnint, a_learncon, a_appMagicIndex1, a_appMagicLevel1, a_appMagicIndex2, a_appMagicLevel2, a_appMagicIndex3, a_appMagicLevel3, a_magicIndex1, a_magicLevel1, a_magicIndex2, a_magicLevel2, a_magicIndex3, a_magicLevel3, a_learnGP, a_targetNum FROM {pMain.pSettings.DBData}.t_skillLevel WHERE a_index={nSkillID} ORDER BY a_level;", (pMain.pSettings.LogVerbose < 2 ? false : true));  // Hardcode!
+							pTableSkillLevels = QueryForExport("utf8", $"SELECT a_needHP, a_needMP, a_needGP, a_durtime, a_dummypower, a_needItemIndex1, a_needItemCount1, a_needItemIndex2, a_needItemCount2, a_learnLevel, a_learnSP, a_learnSkillIndex1, a_learnSkillLevel1, a_learnSkillIndex2, a_learnSkillLevel2, a_learnSkillIndex3, a_learnSkillLevel3, a_learnItemIndex1, a_learnItemCount1, a_learnItemIndex2, a_learnItemCount2, a_learnItemIndex3, a_learnItemCount3, a_learnstr, a_learndex, a_learnint, a_learncon, a_appMagicIndex1, a_appMagicLevel1, a_appMagicIndex2, a_appMagicLevel2, a_appMagicIndex3, a_appMagicLevel3, a_magicIndex1, a_magicLevel1, a_magicIndex2, a_magicLevel2, a_magicIndex3, a_magicLevel3, a_learnGP, a_targetNum FROM {ExportDatabase}.t_skillLevel WHERE a_index={nSkillID} ORDER BY a_level;", (ExportLogVerbosity < 2 ? false : true));  // Hardcode!
 							if (pTableSkillLevels != null)
 							{
+								if (IsRecording && pTableSkillLevels.Rows.Count != Convert.ToInt32(pSkillRow["a_maxLevel"]))
+									throw new InvalidDataException($"Skill {nSkillID} does not have its declared number of levels.");
 								foreach (DataRow pSkillLevelRow in pTableSkillLevels.Rows)
 								{
 									Stream.Write(Convert.ToInt32(pSkillLevelRow["a_needHP"]));
@@ -1346,7 +1363,7 @@ namespace LastChaos_ToolBoxNG
 										Stream.Write(nMagicLevel);  // Write Magic Level
 
 										// NOTE: Ported directly from my Lua code, too dirty, but... who cares.
-										/*DataTable? pTableMagic = pMain.QuerySelect("utf8", $"SELECT a_damagetype, a_subtype FROM {pMain.pSettings.DBData}.t_magic WHERE a_type=1 AND a_index={nMagicID};");  // Hardcode!
+										/*DataTable? pTableMagic = QueryForExport("utf8", $"SELECT a_damagetype, a_subtype FROM {ExportDatabase}.t_magic WHERE a_type=1 AND a_index={nMagicID};");  // Hardcode!
 										if (pTableMagic != null && pTableMagic.Rows.Count > 0)
 										{
 											nDamageType = Convert.ToInt32(pTableMagic.Rows[0]["a_damagetype"]);
@@ -1356,7 +1373,7 @@ namespace LastChaos_ToolBoxNG
 											else if (nDamageType == 2)
 												nDefenseSubType = Convert.ToByte(pTableMagic.Rows[0]["a_subtype"]);
 
-											DataTable? pTableMagicLevel = pMain.QuerySelect("utf8", $"SELECT a_power FROM {pMain.pSettings.DBData}.t_magiclevel WHERE a_index={nMagicID} AND a_level={nMagicLevel};");  // Hardcode!
+											DataTable? pTableMagicLevel = QueryForExport("utf8", $"SELECT a_power FROM {ExportDatabase}.t_magiclevel WHERE a_index={nMagicID} AND a_level={nMagicLevel};");  // Hardcode!
 											if (pTableMagicLevel != null && pTableMagicLevel.Rows.Count > 0)
 											{
 												if (nDamageType == 1)
@@ -1370,7 +1387,7 @@ namespace LastChaos_ToolBoxNG
 											pTableMagic.Dispose();
 										}*/
 
-										pCombinedTable = pMain.QuerySelect("utf8", $"SELECT m.a_damagetype, m.a_subtype, ml.a_power FROM {pMain.pSettings.DBData}.t_magic m LEFT JOIN {pMain.pSettings.DBData}.t_magiclevel ml ON m.a_index=ml.a_index WHERE m.a_type=1 AND m.a_index={nMagicID} AND ml.a_level={nMagicLevel};", (pMain.pSettings.LogVerbose < 2 ? false : true));	// Hardcode!
+										pCombinedTable = QueryForExport("utf8", $"SELECT m.a_damagetype, m.a_subtype, ml.a_power FROM {ExportDatabase}.t_magic m LEFT JOIN {ExportDatabase}.t_magiclevel ml ON m.a_index=ml.a_index WHERE m.a_type=1 AND m.a_index={nMagicID} AND ml.a_level={nMagicLevel};", (ExportLogVerbosity < 2 ? false : true));	// Hardcode!
 										if (pCombinedTable != null && pCombinedTable.Rows.Count > 0)
 										{
 											nDamageType = Convert.ToInt32(pCombinedTable.Rows[0]["a_damagetype"]);
@@ -1401,7 +1418,7 @@ namespace LastChaos_ToolBoxNG
 							}
 							else
 							{
-								pMain.Logger(LogTypes.Error, $"Exporter > Error while exporting: {strFileName}, Missing Skill Levels for Skill: {nSkillID}.");
+								LogExport(LogTypes.Error, $"Exporter > Error while exporting: {strFileName}, Missing Skill Levels for Skill: {nSkillID}.");
 							}
 						}
 #if USE_ORIGINAL_SKILL_CALCULATESUM_AND_END_TAG
@@ -1410,6 +1427,13 @@ namespace LastChaos_ToolBoxNG
 						Stream.Close();
 
 						CalculateSum(strFilePath);	// Write File Checksum
+#else
+						if (IsRecording)
+						{
+							Stream.Write(-9999);
+							Stream.Close();
+							CalculateSum(strFilePath);
+						}
 #endif
 					}
 
@@ -1420,9 +1444,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1439,18 +1463,18 @@ namespace LastChaos_ToolBoxNG
 				int nGroupsIter;
 				string[] strItemIDS;
 				DataRow[]? pRows;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_type, a_items_idxs FROM {pMain.pSettings.DBData}.t_equipment_exchange WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_type, a_items_idxs FROM {ExportDatabase}.t_equipment_exchange WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1490,9 +1514,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1506,18 +1530,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_channel_flag FROM {pMain.pSettings.DBData}.t_npc WHERE a_enable=1 AND a_channel_flag!=-1 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_channel_flag FROM {ExportDatabase}.t_npc WHERE a_enable=1 AND a_channel_flag!=-1 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1537,9 +1561,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1553,18 +1577,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_type, a_job, a_iconid, a_iconrow, a_iconcol FROM {pMain.pSettings.DBData}.t_action ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_type, a_job, a_iconid, a_iconrow, a_iconcol FROM {ExportDatabase}.t_action ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1588,9 +1612,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1607,18 +1631,18 @@ namespace LastChaos_ToolBoxNG
 				int nRowsCount, nSkillID;
 				DataRow[]? pRows;
 				DataRow? pColumns;
-				string strJob2, strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strJob2, strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_job, a_job2, a_tree_row, a_tree_col FROM {pMain.pSettings.DBData}.t_skill WHERE a_tree_row!=-1 AND a_tree_col!=-1 ORDER BY a_index;");	// Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_job, a_job2, a_tree_row, a_tree_col FROM {ExportDatabase}.t_skill WHERE a_tree_row!=-1 AND a_tree_col!=-1 ORDER BY a_index;");	// Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1667,9 +1691,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1686,22 +1710,22 @@ namespace LastChaos_ToolBoxNG
 				int nAPetID, nParam1, nParam2, nParam3, nParam4;
 				DataRow pRow;
 				DataTable? pTableAPet, pTableAPetEV, pTableAPetEXP;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
-				string strQuery = $"SELECT a_index, a_name, a_type, a_item_idx, a_AISlot, a_mount_1, a_mount_2, a_summon_skill_1, a_summon_skill_2, a_flag, a_smcFileName_1, a_smcFileName_2, a_ani_idle1_1, a_ani_idle1_2, a_ani_idle2_1, a_ani_idle2_2, a_ani_attack1_1, a_ani_attack1_2, a_ani_attack2_1, a_ani_attack2_2, a_ani_damage_1, a_ani_damage_2, a_ani_die_1, a_ani_die_2, a_ani_walk_1, a_ani_walk_2, a_ani_run_1, a_ani_run_2, a_ani_levelup_1, a_ani_levelup_2 FROM {pMain.pSettings.DBData}.t_attack_pet ORDER BY a_index";
+				string strQuery = $"SELECT a_index, a_name, a_type, a_item_idx, a_AISlot, a_mount_1, a_mount_2, a_summon_skill_1, a_summon_skill_2, a_flag, a_smcFileName_1, a_smcFileName_2, a_ani_idle1_1, a_ani_idle1_2, a_ani_idle2_1, a_ani_idle2_2, a_ani_attack1_1, a_ani_attack1_2, a_ani_attack2_1, a_ani_attack2_2, a_ani_damage_1, a_ani_damage_2, a_ani_die_1, a_ani_die_2, a_ani_walk_1, a_ani_walk_2, a_ani_run_1, a_ani_run_2, a_ani_levelup_1, a_ani_levelup_2 FROM {ExportDatabase}.t_attack_pet ORDER BY a_index";
 #else
-				string strQuery = $"SELECT a_index, a_type, a_item_idx, a_AISlot, a_mount_1, a_mount_2, a_summon_skill_1, a_summon_skill_2, a_flag, a_smcFileName_1, a_smcFileName_2, a_ani_idle1_1, a_ani_idle1_2, a_ani_idle2_1, a_ani_idle2_2, a_ani_attack1_1, a_ani_attack1_2, a_ani_attack2_1, a_ani_attack2_2, a_ani_damage_1, a_ani_damage_2, a_ani_die_1, a_ani_die_2, a_ani_walk_1, a_ani_walk_2, a_ani_run_1, a_ani_run_2, a_ani_levelup_1, a_ani_levelup_2 FROM {pMain.pSettings.DBData}.t_attack_pet ORDER BY a_index";
+				string strQuery = $"SELECT a_index, a_type, a_item_idx, a_AISlot, a_mount_1, a_mount_2, a_summon_skill_1, a_summon_skill_2, a_flag, a_smcFileName_1, a_smcFileName_2, a_ani_idle1_1, a_ani_idle1_2, a_ani_idle2_1, a_ani_idle2_2, a_ani_attack1_1, a_ani_attack1_2, a_ani_attack2_1, a_ani_attack2_2, a_ani_damage_1, a_ani_damage_2, a_ani_die_1, a_ani_die_2, a_ani_walk_1, a_ani_walk_2, a_ani_run_1, a_ani_run_2, a_ani_levelup_1, a_ani_levelup_2 FROM {ExportDatabase}.t_attack_pet ORDER BY a_index";
 #endif
-				pTableAPet = pMain.QuerySelect("utf8", strQuery);  // Hardcode!
+				pTableAPet = QueryForExport("utf8", strQuery);  // Hardcode!
 				if (pTableAPet != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1714,6 +1738,8 @@ namespace LastChaos_ToolBoxNG
 							Stream.Write(nAPetID);
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							WriteLengthNText(Stream, pAPetRow["a_name"].ToString(), Defs.DEF_APET_NAME_LENGTH, null);
+#else
+							if (IsRecording) WriteLengthNText(Stream, pAPetRow["a_name"].ToString() ?? string.Empty, Defs.DEF_APET_NAME_LENGTH, null);
 #endif
 							Stream.Write(Convert.ToInt32(pAPetRow["a_type"]));
 							Stream.Write(Convert.ToInt32(pAPetRow["a_item_idx"]));
@@ -1745,7 +1771,7 @@ namespace LastChaos_ToolBoxNG
 							WriteLengthNText(Stream, pAPetRow["a_ani_levelup_1"].ToString() ?? string.Empty, Defs.DEF_APET_ANI_LENGTH, null);
 							WriteLengthNText(Stream, pAPetRow["a_ani_levelup_2"].ToString() ?? string.Empty, Defs.DEF_APET_ANI_LENGTH, null);
 
-							pTableAPetEV = pMain.QuerySelect("utf8", $"SELECT a_level, a_stemina, a_faith, a_ev_pet_index FROM {pMain.pSettings.DBData}.t_attack_pet_ev WHERE a_pet_index={nAPetID} ORDER BY a_order;", (pMain.pSettings.LogVerbose < 2 ? false : true));    // Hardcode!
+							pTableAPetEV = QueryForExport("utf8", $"SELECT a_level, a_stemina, a_faith, a_ev_pet_index FROM {ExportDatabase}.t_attack_pet_ev WHERE a_pet_index={nAPetID} ORDER BY a_order;", (ExportLogVerbosity < 2 ? false : true));    // Hardcode!
 							if (pTableAPetEV != null)
 							{
 								for (int i = 0; i < Defs.DEF_MAX_EVOLUTION; i++)
@@ -1776,7 +1802,7 @@ namespace LastChaos_ToolBoxNG
 								pTableAPetEV.Dispose();
 							}
 
-							pTableAPetEXP = pMain.QuerySelect("utf8", $"SELECT a_max_acc_param1, a_max_acc_param2, a_acc_rate_param1, a_acc_rate_param2 FROM {pMain.pSettings.DBData}.t_attack_pet_exp WHERE a_pet_index={nAPetID};", (pMain.pSettings.LogVerbose < 2 ? false : true));  // Hardcode!
+							pTableAPetEXP = QueryForExport("utf8", $"SELECT a_max_acc_param1, a_max_acc_param2, a_acc_rate_param1, a_acc_rate_param2 FROM {ExportDatabase}.t_attack_pet_exp WHERE a_pet_index={nAPetID};", (ExportLogVerbosity < 2 ? false : true));  // Hardcode!
 							if (pTableAPetEXP != null)
 							{
 								for (int i = 0; i < Defs.DEF_MAX_ACCEXP; i++)
@@ -1816,9 +1842,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1834,9 +1860,9 @@ namespace LastChaos_ToolBoxNG
 #endif
 				int nNationID;
 				DataTable? pShopsTable, pItemsTable;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
 				switch (strNation)
@@ -1873,40 +1899,42 @@ namespace LastChaos_ToolBoxNG
 				}
 
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
-				string strQuery = $"SELECT a_keeper_idx, a_name, a_sell_rate, a_buy_rate FROM {pMain.pSettings.DBData}.t_shop ORDER by a_keeper_idx";
+				string strQuery = $"SELECT a_keeper_idx, a_name, a_sell_rate, a_buy_rate FROM {ExportDatabase}.t_shop ORDER by a_keeper_idx";
 #else
-				string strQuery = $"SELECT a_keeper_idx, a_sell_rate, a_buy_rate FROM {pMain.pSettings.DBData}.t_shop ORDER by a_keeper_idx";
+				string strQuery = $"SELECT a_keeper_idx, a_sell_rate, a_buy_rate FROM {ExportDatabase}.t_shop ORDER by a_keeper_idx";
 #endif
-				pShopsTable = pMain.QuerySelect("utf8", strQuery);  // Hardcode!
+				pShopsTable = QueryForExport("utf8", strQuery);  // Hardcode!
 				if (pShopsTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 						Stream.Write(Convert.ToInt32(pShopsTable.AsEnumerable().LastOrDefault()?["a_keeper_idx"]));  // Write Last Row ID
 #else
-						Stream.Write(pShopsTable.Rows.Count);
+						Stream.Write(IsRecording ? Convert.ToInt32(pShopsTable.AsEnumerable().LastOrDefault()?["a_keeper_idx"]) + 1 : pShopsTable.Rows.Count);
 #endif
 						foreach (DataRow pShopsRow in pShopsTable.Rows)
 						{
 							Stream.Write(Convert.ToInt32(pShopsRow["a_keeper_idx"]));
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							WriteLengthNText(Stream, pShopsRow["a_name"].ToString(), 0, typeof(int));
+#else
+							if (IsRecording) WriteLengthNText(Stream, pShopsRow["a_name"].ToString() ?? string.Empty, 0, typeof(int));
 #endif
 							Stream.Write(Convert.ToInt32(pShopsRow["a_sell_rate"]));
 							Stream.Write(Convert.ToInt32(pShopsRow["a_buy_rate"]));
 
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
-							strQuery = $"SELECT t1.a_item_idx AS itemindex FROM {pMain.pSettings.DBData}.t_shopitem t1, {pMain.pSettings.DBData}.t_item t2 WHERE NOT (t1.a_national & ({1L << nNationID})) AND t1.a_keeper_idx={pShopsRow["a_keeper_idx"]} AND t1.a_item_idx=t2.a_index ORDER BY t2.a_job_flag, t2.a_level, t2.a_type_idx, t2.a_subtype_idx, t2.a_index;";
+							strQuery = $"SELECT t1.a_item_idx AS itemindex FROM {ExportDatabase}.t_shopitem t1, {ExportDatabase}.t_item t2 WHERE NOT (t1.a_national & ({1L << nNationID})) AND t1.a_keeper_idx={pShopsRow["a_keeper_idx"]} AND t1.a_item_idx=t2.a_index ORDER BY t2.a_job_flag, t2.a_level, t2.a_type_idx, t2.a_subtype_idx, t2.a_index;";
 #else
-							strQuery = $"SELECT t1.a_item_idx AS itemindex, 0 AS itemplus FROM {pMain.pSettings.DBData}.t_shopitem t1, {pMain.pSettings.DBData}.t_item t2 WHERE NOT (t1.a_national & ({1L << nNationID})) AND t1.a_keeper_idx={pShopsRow["a_keeper_idx"]} AND t1.a_item_idx=t2.a_index ORDER BY t2.a_job_flag, t2.a_level, t2.a_type_idx, t2.a_subtype_idx, t2.a_index;";   // Adapted for schemas without t_shopitem.a_item_plus.
+							strQuery = $"SELECT t1.a_item_idx AS itemindex, 0 AS itemplus FROM {ExportDatabase}.t_shopitem t1, {ExportDatabase}.t_item t2 WHERE NOT (t1.a_national & ({1L << nNationID})) AND t1.a_keeper_idx={pShopsRow["a_keeper_idx"]} AND t1.a_item_idx=t2.a_index ORDER BY t2.a_job_flag, t2.a_level, t2.a_type_idx, t2.a_subtype_idx, t2.a_index;";   // Adapted for schemas without t_shopitem.a_item_plus.
 #endif
-							pItemsTable = pMain.QuerySelect("utf8", strQuery, (pMain.pSettings.LogVerbose < 2 ? false : true));
+							pItemsTable = QueryForExport("utf8", strQuery, (ExportLogVerbosity < 2 ? false : true));
 							if (pItemsTable != null)
 							{
 								Stream.Write(pItemsTable.Rows.Count);   // Write Total Items Rows
@@ -1914,7 +1942,7 @@ namespace LastChaos_ToolBoxNG
 								foreach (DataRow pItemsRow in pItemsTable.Rows)
 								{
 									Stream.Write(Convert.ToInt32(pItemsRow["itemindex"]));
-									Stream.Write(Convert.ToInt32(pItemsRow["itemplus"]));
+									if (!IsRecording) Stream.Write(Convert.ToInt32(pItemsRow["itemplus"]));
 								}
 
 								pItemsTable.Dispose();
@@ -1929,9 +1957,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -1945,18 +1973,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_type1, a_type2, a_start_type, a_start_data, a_prize_npc, a_option_prize, a_prequest_num, a_start_npc_zone_num, a_prize_npc_zone_num, a_need_exp, a_need_min_level, a_need_max_level, a_need_job, a_need_rvr_type, a_need_rvr_grade, a_partyscale, a_only_opt_prize, a_need_item0, a_need_item_count0, a_need_item1, a_need_item_count1, a_need_item2, a_need_item_count2, a_need_item3, a_need_item_count3, a_need_item4, a_need_item_count4, a_condition0_type, a_condition0_index, a_condition0_num, a_condition0_data0, a_condition0_data1, a_condition0_data2, a_condition0_data3, a_condition1_type, a_condition1_index, a_condition1_num, a_condition1_data0, a_condition1_data1, a_condition1_data2, a_condition1_data3, a_condition2_type, a_condition2_index, a_condition2_num, a_condition2_data0, a_condition2_data1, a_condition2_data2, a_condition2_data3, a_prize_type0, a_prize_index0, a_prize_data0, a_prize_type1, a_prize_index1, a_prize_data1, a_prize_type2, a_prize_index2, a_prize_data2, a_prize_type3, a_prize_index3, a_prize_data3, a_prize_type4, a_prize_index4, a_prize_data4, a_opt_prize_type0, a_opt_prize_index0, a_opt_prize_data0, a_opt_prize_plus0, a_opt_prize_type1, a_opt_prize_index1, a_opt_prize_data1, a_opt_prize_plus1, a_opt_prize_type2, a_opt_prize_index2, a_opt_prize_data2, a_opt_prize_plus2, a_opt_prize_type3, a_opt_prize_index3, a_opt_prize_data3, a_opt_prize_plus3, a_opt_prize_type4, a_opt_prize_index4, a_opt_prize_data4, a_opt_prize_plus4, a_opt_prize_type5, a_opt_prize_index5, a_opt_prize_data5, a_opt_prize_plus5, a_opt_prize_type6, a_opt_prize_index6, a_opt_prize_data6, a_opt_prize_plus6 FROM {pMain.pSettings.DBData}.t_quest WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_type1, a_type2, a_start_type, a_start_data, a_prize_npc, a_option_prize, a_prequest_num, a_start_npc_zone_num, a_prize_npc_zone_num, a_need_exp, a_need_min_level, a_need_max_level, a_need_job, a_need_rvr_type, a_need_rvr_grade, a_partyscale, a_only_opt_prize, a_need_item0, a_need_item_count0, a_need_item1, a_need_item_count1, a_need_item2, a_need_item_count2, a_need_item3, a_need_item_count3, a_need_item4, a_need_item_count4, a_condition0_type, a_condition0_index, a_condition0_num, a_condition0_data0, a_condition0_data1, a_condition0_data2, a_condition0_data3, a_condition1_type, a_condition1_index, a_condition1_num, a_condition1_data0, a_condition1_data1, a_condition1_data2, a_condition1_data3, a_condition2_type, a_condition2_index, a_condition2_num, a_condition2_data0, a_condition2_data1, a_condition2_data2, a_condition2_data3, a_prize_type0, a_prize_index0, a_prize_data0, a_prize_type1, a_prize_index1, a_prize_data1, a_prize_type2, a_prize_index2, a_prize_data2, a_prize_type3, a_prize_index3, a_prize_data3, a_prize_type4, a_prize_index4, a_prize_data4, a_opt_prize_type0, a_opt_prize_index0, a_opt_prize_data0, a_opt_prize_plus0, a_opt_prize_type1, a_opt_prize_index1, a_opt_prize_data1, a_opt_prize_plus1, a_opt_prize_type2, a_opt_prize_index2, a_opt_prize_data2, a_opt_prize_plus2, a_opt_prize_type3, a_opt_prize_index3, a_opt_prize_data3, a_opt_prize_plus3, a_opt_prize_type4, a_opt_prize_index4, a_opt_prize_data4, a_opt_prize_plus4, a_opt_prize_type5, a_opt_prize_index5, a_opt_prize_data5, a_opt_prize_plus5, a_opt_prize_type6, a_opt_prize_index6, a_opt_prize_data6, a_opt_prize_plus6 FROM {ExportDatabase}.t_quest WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -1980,6 +2008,8 @@ namespace LastChaos_ToolBoxNG
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							Stream.Write(0);	// Write Need Min Penalty
 							Stream.Write(0);	// Write Need Max Penalty
+#else
+							if (IsRecording) { Stream.Write(0); Stream.Write(0); }
 #endif
 							for (int i = 0; i < Defs.MAX_MAX_NEED_ITEM; i++)
 								Stream.Write(Convert.ToInt32(pRow["a_need_item" + i]));
@@ -2040,9 +2070,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2056,22 +2086,22 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
-				string strQuery = $"SELECT a_index, a_grade, a_type, a_attack, a_defense, a_magic, a_resist, a_option_index0, a_option_level0, a_option_index1, a_option_level1, a_option_index2, a_option_level2, a_option_index3, a_option_level3, a_option_index4, a_option_level4, a_option_index5, a_option_level5, a_option_index6, a_option_level6, a_option_index7, a_option_level7, a_option_index8, a_option_level8, a_option_index9, a_option_level9 FROM {pMain.pSettings.DBData}.t_rareoption WHERE a_grade!=-1 ORDER BY a_index;";
+				string strQuery = $"SELECT a_index, a_grade, a_type, a_attack, a_defense, a_magic, a_resist, a_option_index0, a_option_level0, a_option_index1, a_option_level1, a_option_index2, a_option_level2, a_option_index3, a_option_level3, a_option_index4, a_option_level4, a_option_index5, a_option_level5, a_option_index6, a_option_level6, a_option_index7, a_option_level7, a_option_index8, a_option_level8, a_option_index9, a_option_level9 FROM {ExportDatabase}.t_rareoption WHERE a_grade!=-1 ORDER BY a_index;";
 #else
-				string strQuery = $"SELECT a_index, a_grade, a_attack, a_defense, a_magic, a_resist, a_option_index0, a_option_level0, a_option_index1, a_option_level1, a_option_index2, a_option_level2, a_option_index3, a_option_level3, a_option_index4, a_option_level4, a_option_index5, a_option_level5, a_option_index6, a_option_level6, a_option_index7, a_option_level7, a_option_index8, a_option_level8, a_option_index9, a_option_level9 FROM {pMain.pSettings.DBData}.t_rareoption WHERE a_grade!=-1 ORDER BY a_index;";
+				string strQuery = $"SELECT a_index, a_grade, a_attack, a_defense, a_magic, a_resist, a_option_index0, a_option_level0, a_option_index1, a_option_level1, a_option_index2, a_option_level2, a_option_index3, a_option_level3, a_option_index4, a_option_level4, a_option_index5, a_option_level5, a_option_index6, a_option_level6, a_option_index7, a_option_level7, a_option_index8, a_option_level8, a_option_index9, a_option_level9 FROM {ExportDatabase}.t_rareoption WHERE a_grade!=-1 ORDER BY a_index;";
 #endif
-				DataTable? pTable = pMain.QuerySelect("utf8", strQuery);  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", strQuery);  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2083,6 +2113,8 @@ namespace LastChaos_ToolBoxNG
 							Stream.Write(Convert.ToInt32(pRow["a_grade"]));
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							Stream.Write(Convert.ToInt32(pRow["a_type"]));
+#else
+							if (IsRecording) Stream.Write(Convert.ToInt32(pRow["a_type"]));
 #endif
 							Stream.Write(Convert.ToInt32(pRow["a_attack"]));
 							Stream.Write(Convert.ToInt32(pRow["a_defense"]));
@@ -2104,9 +2136,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2123,18 +2155,18 @@ namespace LastChaos_ToolBoxNG
 				int nSkillID;
 				sbyte sbSkillLevel;
 				string[] strSkillData;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT DISTINCT a_index, a_level, a_walk_speed, a_run_speed, a_size, a_hp, a_mp, a_attack_area, a_skillmaster, a_flag, a_flag1, a_scale, a_sskill_master, a_file_smc, a_motion_idle, a_motion_walk, a_motion_dam, a_motion_attack, a_motion_die, a_motion_run, a_motion_idle2, a_motion_attack2, a_attackSpeed, a_skill0, a_skill1, a_attackType, a_fireDelayCount, a_fireDelay0, a_fireDelay1, a_fireDelay2, a_fireDelay3, a_fireEffect0, a_fireEffect1, a_fireEffect2, a_fireObject, a_fireSpeed, a_rvr_value, a_rvr_grade, a_bound FROM {pMain.pSettings.DBData}.t_npc WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT DISTINCT a_index, a_level, a_walk_speed, a_run_speed, a_size, a_hp, a_mp, a_attack_area, a_skillmaster, a_flag, a_flag1, a_scale, a_sskill_master, a_file_smc, a_motion_idle, a_motion_walk, a_motion_dam, a_motion_attack, a_motion_die, a_motion_run, a_motion_idle2, a_motion_attack2, a_attackSpeed, a_skill0, a_skill1, a_attackType, a_fireDelayCount, a_fireDelay0, a_fireDelay1, a_fireDelay2, a_fireDelay3, a_fireEffect0, a_fireEffect1, a_fireEffect2, a_fireObject, a_fireSpeed, a_rvr_value, a_rvr_grade, a_bound FROM {ExportDatabase}.t_npc WHERE a_enable=1 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2149,7 +2181,8 @@ namespace LastChaos_ToolBoxNG
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							Stream.Write(Convert.ToInt32(pRow["a_flag"]));
 #else
-							Stream.Write(Convert.ToInt64(pRow["a_flag"]));
+							if (IsRecording) Stream.Write(unchecked((int)Convert.ToInt64(pRow["a_flag"])));
+							else Stream.Write(Convert.ToInt64(pRow["a_flag"]));
 #endif
 							Stream.Write(Convert.ToInt32(pRow["a_flag1"]));
 							Stream.Write(Convert.ToInt32(pRow["a_attackSpeed"]));
@@ -2163,6 +2196,8 @@ namespace LastChaos_ToolBoxNG
 #if USE_ORIGINAL_SQL_REQUEST_AND_ORIGINAL_FILE_SERIALIZATION
 							for (int i = 0; i < 5; i++)
 								Stream.Write(0);	//Stream.Write(Convert.ToInt32(pRow[$"a_skill{i}_effect"]));
+#else
+							if (IsRecording) for (int i = 0; i < 5; i++) Stream.Write(0);
 #endif
 							Stream.Write(Convert.ToSByte(pRow["a_attackType"]));
 							Stream.Write(Convert.ToByte(pRow["a_fireDelayCount"]));
@@ -2221,9 +2256,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2239,18 +2274,18 @@ namespace LastChaos_ToolBoxNG
 #endif
 				int nValue;
 				string[] strValues;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_type, a_level FROM {pMain.pSettings.DBData}.t_option ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_type, a_level FROM {ExportDatabase}.t_option ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2282,9 +2317,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2298,18 +2333,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_enable, a_effect_name, a_attack, a_damage, a_color, a_bgcolor, a_option_index0, a_option_index1, a_option_index2, a_option_index3, a_option_index4 , a_option_level0, a_option_level1, a_option_level2, a_option_level3, a_option_level4, a_item_index FROM {pMain.pSettings.DBData}.t_title ORDER BY a_index");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_enable, a_effect_name, a_attack, a_damage, a_color, a_bgcolor, a_option_index0, a_option_index1, a_option_index2, a_option_index3, a_option_index4 , a_option_level0, a_option_level1, a_option_level2, a_option_level3, a_option_level4, a_item_index FROM {ExportDatabase}.t_title ORDER BY a_index");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2333,6 +2368,8 @@ namespace LastChaos_ToolBoxNG
 							for (int i = 0; i < Defs.DEF_NICK_OPTION_MAX; i++)
 								Stream.Write(Convert.ToByte(pRow["a_option_level" + i]));
 
+							if (IsRecording)
+								for (int i = 0; i < Defs.DEF_NICK_OPTION_MAX; i++) Stream.Write(Convert.ToInt32(pRow["a_option_value" + i]));
 							Stream.Write(Convert.ToInt32(pRow["a_item_index"]));
 						}
 					}
@@ -2344,9 +2381,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2364,18 +2401,18 @@ namespace LastChaos_ToolBoxNG
 				string[] strDMLeft, strDMTop, strDMRight, strDMBottom, strDMWLeft, strDMWTop, strDMWRight, strDMWBottom, strDMX, strDMZ, strDMRate, strDungeonID, strDungeonX, strDungeonZ, strDungeonType;
 				byte sDetailMapCount, sDungeonCount;
 				DataTable? pZonesTable, pNPCTable;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 				
-				pZonesTable = pMain.QuerySelect("utf8", $"SELECT a_zone_index, a_ylayer, a_map_left, a_map_top, a_map_right, a_map_bottom, a_map_rate, a_map_offset_x, a_map_offset_z, a_detailmap_count, a_detailmap_left, a_detailmap_top, a_detailmap_right, a_detailmap_bottom, a_detailmap_w_left, a_detailmap_w_top, a_detailmap_w_right, a_detailmap_w_bottom, a_detailmap_x, a_detailmap_z, a_detailmap_rate, a_dungeon_count, a_dungeon_index, a_dungeon_x, a_dungeon_z, a_dungeon_type FROM {pMain.pSettings.DBData}.t_mapinfo ORDER BY a_sort_key");  // Hardcode!
+				pZonesTable = QueryForExport("utf8", $"SELECT a_zone_index, a_ylayer, a_map_left, a_map_top, a_map_right, a_map_bottom, a_map_rate, a_map_offset_x, a_map_offset_z, a_detailmap_count, a_detailmap_left, a_detailmap_top, a_detailmap_right, a_detailmap_bottom, a_detailmap_w_left, a_detailmap_w_top, a_detailmap_w_right, a_detailmap_w_bottom, a_detailmap_x, a_detailmap_z, a_detailmap_rate, a_dungeon_count, a_dungeon_index, a_dungeon_x, a_dungeon_z, a_dungeon_type FROM {ExportDatabase}.t_mapinfo ORDER BY a_sort_key");  // Hardcode!
 				if (pZonesTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2461,7 +2498,7 @@ namespace LastChaos_ToolBoxNG
 							}
 							
 							// Minimap Data
-							pNPCTable = pMain.QuerySelect("utf8", $"(SELECT t1.a_npc_idx npcindex, t1.a_y_layer, t1.a_pos_x, t1.a_pos_z FROM {pMain.pSettings.DBData}.t_npc_regen t1, {pMain.pSettings.DBData}.t_npc t2 WHERE t1.a_zone_num={nZoneID} AND t1.a_npc_idx=t2.a_index AND ((t2.a_flag & {(1L << Array.IndexOf(Defs.NPCFlags, "DISPLAY_MAP"))})!=0 OR EXISTS (SELECT 1 FROM {pMain.pSettings.DBData}.t_affinity_npc an WHERE an.a_npcidx=t1.a_npc_idx AND an.a_enable=1)) AND t2.a_enable=1) UNION (SELECT t3.a_keeper_idx npcindex, t3.a_y_layer, t3.a_pos_x, t3.a_pos_z FROM {pMain.pSettings.DBData}.t_shop t3, {pMain.pSettings.DBData}.t_npc t4 WHERE t3.a_zone_num={nZoneID} AND t3.a_keeper_idx=t4.a_index AND t4.a_enable=1) ORDER BY npcindex;", (pMain.pSettings.LogVerbose < 2 ? false : true));	 // Hardcode!
+							pNPCTable = QueryForExport("utf8", $"(SELECT t1.a_npc_idx npcindex, t1.a_y_layer, t1.a_pos_x, t1.a_pos_z FROM {ExportDatabase}.t_npc_regen t1, {ExportDatabase}.t_npc t2 WHERE t1.a_zone_num={nZoneID} AND t1.a_npc_idx=t2.a_index AND ((t2.a_flag & {(1L << Array.IndexOf(Defs.NPCFlags, "DISPLAY_MAP"))})!=0 OR EXISTS (SELECT 1 FROM {ExportDatabase}.t_affinity_npc an WHERE an.a_npcidx=t1.a_npc_idx AND an.a_enable=1)) AND t2.a_enable=1) UNION (SELECT t3.a_keeper_idx npcindex, t3.a_y_layer, t3.a_pos_x, t3.a_pos_z FROM {ExportDatabase}.t_shop t3, {ExportDatabase}.t_npc t4 WHERE t3.a_zone_num={nZoneID} AND t3.a_keeper_idx=t4.a_index AND t4.a_enable=1) ORDER BY npcindex;", (ExportLogVerbosity < 2 ? false : true));	 // Hardcode!
 							if (pNPCTable != null)
 							{
 								Stream.Write(Convert.ToInt32(pNPCTable.Rows.Count));
@@ -2486,9 +2523,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2504,21 +2541,21 @@ namespace LastChaos_ToolBoxNG
 #endif
 				int nZoneNum, nNPCIndex;
 				DataTable? pNPCTable, pShopTable;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				pNPCTable = pMain.QuerySelect("utf8", $"SELECT DISTINCT nr.a_zone_num, n.a_index FROM {pMain.pSettings.DBData}.t_npc_regen nr, {pMain.pSettings.DBData}.t_npc n WHERE nr.a_npc_idx=n.a_index AND (((nr.a_zone_num IN(0, 4, 7, 15, 23, 32, 39, 40)) AND (n.a_flag & {(1L << Array.IndexOf(Defs.NPCFlags, "DISPLAY_MAP"))})>0 AND !(n.a_flag1 & {(1L << Array.IndexOf(Defs.NPCFlags1, "NOT_NPCPORTAL"))})) OR EXISTS (SELECT 1 FROM {pMain.pSettings.DBData}.t_affinity_npc an WHERE an.a_npcidx=nr.a_npc_idx AND an.a_enable=1)) AND n.a_enable=1 ORDER BY nr.a_zone_num, n.a_index;");  // Hardcode!
+				pNPCTable = QueryForExport("utf8", $"SELECT DISTINCT nr.a_zone_num, n.a_index FROM {ExportDatabase}.t_npc_regen nr, {ExportDatabase}.t_npc n WHERE nr.a_npc_idx=n.a_index AND (((nr.a_zone_num IN(0, 4, 7, 15, 23, 32, 39, 40)) AND (n.a_flag & {(1L << Array.IndexOf(Defs.NPCFlags, "DISPLAY_MAP"))})>0 AND !(n.a_flag1 & {(1L << Array.IndexOf(Defs.NPCFlags1, "NOT_NPCPORTAL"))})) OR EXISTS (SELECT 1 FROM {ExportDatabase}.t_affinity_npc an WHERE an.a_npcidx=nr.a_npc_idx AND an.a_enable=1)) AND n.a_enable=1 ORDER BY nr.a_zone_num, n.a_index;");  // Hardcode!
 				if (pNPCTable != null)
 				{
-					pShopTable = pMain.QuerySelect("utf8", $"SELECT DISTINCT shop_npc.a_zone_num, n.a_index FROM {pMain.pSettings.DBData}.t_npc AS n, {pMain.pSettings.DBData}.t_shop AS shop_npc WHERE n.a_index=shop_npc.a_keeper_idx AND (((shop_npc.a_zone_num IN(0, 4, 7, 15, 23, 32, 39, 40)) AND (n.a_flag & {(1L << Array.IndexOf(Defs.NPCFlags, "DISPLAY_MAP"))}) AND !(n.a_flag1 & {(1L << Array.IndexOf(Defs.NPCFlags1, "NOT_NPCPORTAL"))})) OR EXISTS (SELECT 1 FROM {pMain.pSettings.DBData}.t_affinity_npc an WHERE an.a_npcidx=shop_npc.a_keeper_idx AND an.a_enable=1)) AND n.a_enable=1;");  // Hardcode!
+					pShopTable = QueryForExport("utf8", $"SELECT DISTINCT shop_npc.a_zone_num, n.a_index FROM {ExportDatabase}.t_npc AS n, {ExportDatabase}.t_shop AS shop_npc WHERE n.a_index=shop_npc.a_keeper_idx AND (((shop_npc.a_zone_num IN(0, 4, 7, 15, 23, 32, 39, 40)) AND (n.a_flag & {(1L << Array.IndexOf(Defs.NPCFlags, "DISPLAY_MAP"))}) AND !(n.a_flag1 & {(1L << Array.IndexOf(Defs.NPCFlags1, "NOT_NPCPORTAL"))})) OR EXISTS (SELECT 1 FROM {ExportDatabase}.t_affinity_npc an WHERE an.a_npcidx=shop_npc.a_keeper_idx AND an.a_enable=1)) AND n.a_enable=1;");  // Hardcode!
 					if (pShopTable != null)
 					{
 						if (!Directory.Exists(strFilePath))
 							Directory.CreateDirectory(strFilePath);
 
-						strFilePath += $"\\{strFileName}.lod";
+						strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 						using (BinaryWriter Stream = new(File.Create(strFilePath)))
 						{
@@ -2549,9 +2586,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2569,27 +2606,27 @@ namespace LastChaos_ToolBoxNG
 				DataRow[] pArray;
 				List<(int, int)> pRewards = new();
 				DataTable? pAffinityTable, pAffinityNPCTable, pAffinityWorkTable, pAffinityRewardTable;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				pAffinityTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_texture_id, a_texture_row, a_texture_col, a_needitemidx, a_needitemcount, a_needlevel, a_affinity_idx, a_affinity_value FROM {pMain.pSettings.DBData}.t_affinity WHERE a_enable=1;"); // Hardcode!
+				pAffinityTable = QueryForExport("utf8", $"SELECT a_index, a_texture_id, a_texture_row, a_texture_col, a_needitemidx, a_needitemcount, a_needlevel, a_affinity_idx, a_affinity_value FROM {ExportDatabase}.t_affinity WHERE a_enable=1;"); // Hardcode!
 				if (pAffinityTable != null)
 				{
-					pAffinityNPCTable = pMain.QuerySelect("utf8", $"SELECT a_affinity_idx, a_npcidx, a_flag, a_string_idx FROM {pMain.pSettings.DBData}.t_affinity_npc WHERE a_enable=1;");  // Hardcode!
+					pAffinityNPCTable = QueryForExport("utf8", $"SELECT a_affinity_idx, a_npcidx, a_flag, a_string_idx FROM {ExportDatabase}.t_affinity_npc WHERE a_enable=1;");  // Hardcode!
 					if (pAffinityNPCTable != null)
 					{
-						pAffinityWorkTable = pMain.QuerySelect("utf8", $"SELECT a_affinity_idx, a_work_type, a_type_idx, a_value, a_id, a_row, a_col FROM {pMain.pSettings.DBData}.t_affinity_work WHERE a_enable=1;");    // Hardcode!
+						pAffinityWorkTable = QueryForExport("utf8", $"SELECT a_affinity_idx, a_work_type, a_type_idx, a_value, a_id, a_row, a_col FROM {ExportDatabase}.t_affinity_work WHERE a_enable=1;");    // Hardcode!
 						if (pAffinityWorkTable != null)
 						{
-							pAffinityRewardTable = pMain.QuerySelect("utf8", $"SELECT a_npcidx, a_itemidx, a_allow_point FROM {pMain.pSettings.DBData}.t_affinity_reward_item;");    // Hardcode!
+							pAffinityRewardTable = QueryForExport("utf8", $"SELECT a_npcidx, a_itemidx, a_allow_point FROM {ExportDatabase}.t_affinity_reward_item;");    // Hardcode!
 							if (pAffinityRewardTable != null)
 							{
 								if (!Directory.Exists(strFilePath))
 									Directory.CreateDirectory(strFilePath);
 
-								strFilePath += $"\\{strFileName}.lod";
+								strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 								using (BinaryWriter Stream = new(File.Create(strFilePath)))
 								{
@@ -2692,9 +2729,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2710,18 +2747,18 @@ namespace LastChaos_ToolBoxNG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
 				int nCategoryID;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_category, a_theme, a_id, a_row, a_col, a_need1_type, a_need2_type, a_need3_type, a_need4_type, a_need5_type, a_need6_type, a_need1_index, a_need2_index, a_need3_index, a_need4_index, a_need5_index, a_need6_index, a_need1_num, a_need2_num, a_need3_num, a_need4_num, a_need5_num, a_need6_num, a_result_type, a_result_index, a_result_num FROM {pMain.pSettings.DBData}.t_item_collection WHERE a_enable=1 ORDER BY a_theme, a_category;");	// Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_category, a_theme, a_id, a_row, a_col, a_need1_type, a_need2_type, a_need3_type, a_need4_type, a_need5_type, a_need6_type, a_need1_index, a_need2_index, a_need3_index, a_need4_index, a_need5_index, a_need6_index, a_need1_num, a_need2_num, a_need3_num, a_need4_num, a_need5_num, a_need6_num, a_result_type, a_result_index, a_result_num FROM {ExportDatabase}.t_item_collection WHERE a_enable=1 ORDER BY a_theme, a_category;");	// Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2759,9 +2796,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2775,18 +2812,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 				
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_skill_index, a_skill_level, a_string_index, a_prob FROM {pMain.pSettings.DBData}.t_fortune_data GROUP BY a_skill_index ORDER BY a_skill_index");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_skill_index, a_skill_level, a_string_index, a_prob FROM {ExportDatabase}.t_fortune_data GROUP BY a_skill_index ORDER BY a_skill_index");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2808,9 +2845,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2824,18 +2861,18 @@ namespace LastChaos_ToolBoxNG
 #if DEBUG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 				
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT DISTINCT nr.a_zone_num, n.a_index, n.a_name from {pMain.pSettings.DBData}.t_npc_regen AS nr, {pMain.pSettings.DBData}.t_npc AS n WHERE nr.a_zone_num IN(0, 4, 7, 15, 23, 32, 39, 40) AND nr.a_npc_idx=n.a_index AND !(a_flag & {(1L << Array.IndexOf(Defs.NPCFlags, "PEACEFUL"))}) AND !(a_flag1 & {(1L << Array.IndexOf(Defs.NPCFlags1, "AFFINITY"))}) AND n.a_enable=1 ORDER BY nr.a_zone_num, n.a_index;");	  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT DISTINCT nr.a_zone_num, n.a_index, n.a_name from {ExportDatabase}.t_npc_regen AS nr, {ExportDatabase}.t_npc AS n WHERE nr.a_zone_num IN(0, 4, 7, 15, 23, 32, 39, 40) AND nr.a_npc_idx=n.a_index AND !(a_flag & {(1L << Array.IndexOf(Defs.NPCFlags, "PEACEFUL"))}) AND !(a_flag1 & {(1L << Array.IndexOf(Defs.NPCFlags1, "AFFINITY"))}) AND n.a_enable=1 ORDER BY nr.a_zone_num, n.a_index;");	  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2855,9 +2892,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2872,18 +2909,18 @@ namespace LastChaos_ToolBoxNG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
 				string[] strSplited;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_set_idx, a_job, a_item_idx, a_option_count, a_wear_count, a_option_type, a_option_idx, a_option_level FROM {pMain.pSettings.DBData}.t_set_item WHERE a_enable=1 ORDER BY a_set_idx;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_set_idx, a_job, a_item_idx, a_option_count, a_wear_count, a_option_type, a_option_idx, a_option_level FROM {ExportDatabase}.t_set_item WHERE a_enable=1 ORDER BY a_set_idx;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2929,9 +2966,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 
@@ -2946,18 +2983,18 @@ namespace LastChaos_ToolBoxNG
 				Stopwatch stopwatch = Stopwatch.StartNew();
 #endif
 				long lExtraFlag, lFlag;
-				string strFilePath = pMain.pSettings.ClientPath + "\\Data";
+				string strFilePath = ExportClientRoot + "\\Data";
 
-				if (rbExportToLocalFolder.Checked)
+				if (ExportToLocalFolder)
 					strFilePath = "Data";
 
-				DataTable? pTable = pMain.QuerySelect("utf8", $"SELECT a_index, a_zone_flag, a_extra_flag FROM {pMain.pSettings.DBData}.t_npc WHERE a_flag!=0 AND a_zone_flag>0 ORDER BY a_index;");  // Hardcode!
+				DataTable? pTable = QueryForExport("utf8", $"SELECT a_index, a_zone_flag, a_extra_flag FROM {ExportDatabase}.t_npc WHERE a_flag!=0 AND a_zone_flag>0 ORDER BY a_index;");  // Hardcode!
 				if (pTable != null)
 				{
 					if (!Directory.Exists(strFilePath))
 						Directory.CreateDirectory(strFilePath);
 
-					strFilePath += $"\\{strFileName}.lod";
+					strFilePath = ExportDataFilePath(strFilePath, strFileName);
 					
 					using (BinaryWriter Stream = new(File.Create(strFilePath)))
 					{
@@ -2990,9 +3027,9 @@ namespace LastChaos_ToolBoxNG
 				long elapsedTime = stopwatch.ElapsedMilliseconds;
 				Interlocked.Add(ref lTotalElapsedTime, elapsedTime);
 
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done! (Took: {elapsedTime}ms)");
 #else
-				pMain.Logger(LogTypes.Success, $"Export: {strFilePath} Done!");
+				LogExport(LogTypes.Success, $"Export: {strFilePath} Done!");
 #endif
 			});
 

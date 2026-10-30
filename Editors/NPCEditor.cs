@@ -903,6 +903,7 @@ namespace LastChaos_ToolBoxNG
 			pProgressDialog.Close();
 
 			MainList.Focus();
+			ApplyProfessionNpcNavigation();
 		}
 
 		private void NPCEditor_FormClosing(object sender, FormClosingEventArgs e)

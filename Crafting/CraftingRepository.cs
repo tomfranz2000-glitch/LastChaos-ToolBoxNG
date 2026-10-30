@@ -1,4 +1,5 @@
 using MySqlConnector;
+using LastChaos_ToolBoxNG.Professions;
 using System.Data;
 using System.Text.RegularExpressions;
 
@@ -6,9 +7,10 @@ namespace LastChaos_ToolBoxNG.Crafting;
 
 public sealed class CraftingRepository(string connectionString, string locale)
 {
-    public static readonly string[] Tables = ["t_crafting_settings", "t_crafting_recipe", "t_crafting_ingredient", "t_crafting_manual",
+    public static readonly string[] BaseTables = ["t_crafting_settings", "t_crafting_recipe", "t_crafting_ingredient", "t_crafting_manual",
         "t_crafting_bonus_output", "t_crafting_mastery", "t_crafting_mastery_bonus", "t_crafting_master_rank", "t_crafting_master_rank_bonus",
         "t_gathering_material", "t_gathering_material_bonus"];
+    public static readonly string[] Tables = [..BaseTables,..ProfessionSchema.Tables.Select(t=>t.Name)];
     private readonly string language = Regex.IsMatch(locale, "^[a-z]+$") ? locale : throw new ArgumentException("Invalid item locale.");
     public CraftingCatalog Load()
     {
@@ -46,13 +48,14 @@ public sealed class CraftingRepository(string connectionString, string locale)
         Rows(db, tx, "SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", Tables.Select(t => "'" + t + "'")) + ")", r => found[r.GetString(0)] = r.GetString(1));
         if (Tables.Any(t => !found.TryGetValue(t, out string? e) || e != "InnoDB"))
-            throw new InvalidOperationException("Crafting and gathering mastery require eleven InnoDB content tables. Apply the game's migrations through 0036; this editor never creates or changes schema.");
+            throw new InvalidOperationException("Crafting and gathering mastery require all 23 InnoDB content tables. Apply the game's migrations through 0037; this editor never creates or changes schema.");
         try {
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_crafting_mastery LIMIT 0",_=>{});
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_gathering_material LIMIT 0",_=>{});
             Rows(db,tx,"SELECT a_rank FROM t_crafting_mastery_bonus LIMIT 0",_=>{});
             Rows(db,tx,"SELECT a_rank FROM t_gathering_material_bonus LIMIT 0",_=>{});
         } catch(MySqlException e) when(e.Number is 1054 or 1146) { throw new InvalidOperationException("Apply game migration 0036 before editing three-rank mastery.",e); }
+        ProfessionStorage.CheckSchema(db,tx);
         // Hold metadata locks until commit; never let a concurrent ALTER swap in
         // nontransactional storage between validation and the first write.
         using var triggers = new MySqlCommand("SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE EVENT_OBJECT_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE IN (" +
@@ -99,8 +102,9 @@ public sealed class CraftingRepository(string connectionString, string locale)
         Rows(db, tx, Lock("SELECT a_rank_index,a_slot,a_option_type,a_value FROM t_crafting_master_rank_bonus ORDER BY a_rank_index,a_slot"), r => {
             var rank=ranks[r.GetInt32(0)]; CheckSlot(rank.Bonuses.Count,r.GetInt32(1)); rank.Bonuses.Add(new() { Effect=r.GetInt32(2), Amount=r.GetInt32(3) }); });
         int[] rebirth = [846,2667,3218,4933,5958,7056,9194,9195,9196]; // Item.cpp engine exclusions.
-        Rows(db, tx, "SELECT a_index,COALESCE(a_name_"+language+",''),a_enable,a_type_idx,a_subtype_idx,a_flag,a_weight,a_texture_id,a_texture_row,a_texture_col FROM t_item ORDER BY a_index" + (locked ? " LOCK IN SHARE MODE" : ""), r => {
-            int id=r.GetInt32(0); c.Items[id]=new(id,r.GetString(1),r.GetBoolean(2),r.GetInt32(3),r.GetInt32(4),r.GetInt64(5),r.GetInt32(6),r.GetInt32(7),r.GetInt32(8),r.GetInt32(9),rebirth.Contains(id)); });
+        Rows(db, tx, "SELECT a_index,COALESCE(a_name_"+language+",''),a_enable,a_type_idx,a_subtype_idx,a_flag,a_weight,a_texture_id,a_texture_row,a_texture_col,a_wearing FROM t_item ORDER BY a_index" + (locked ? " LOCK IN SHARE MODE" : ""), r => {
+            int id=r.GetInt32(0); c.Items[id]=new(id,r.GetString(1),r.GetBoolean(2),r.GetInt32(3),r.GetInt32(4),r.GetInt64(5),r.GetInt32(6),r.GetInt32(7),r.GetInt32(8),r.GetInt32(9),rebirth.Contains(id),r.GetInt32(10)); });
+        c.Professions=ProfessionStorage.Read(db,tx,locked,language);
         c.UpdateNames(); return c;
     }
     private static void CheckSlot(int expected,int actual)
@@ -108,7 +112,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
     public void Save(CraftingCatalog original, CraftingCatalog edited)
     {
         // Snapshot the UI draft before work leaves its thread. This API owns one
-        // connection/transaction and only the nine authored content tables.
+        // connection/transaction and only the 23 authored content tables.
         using var db=new MySqlConnection(connectionString); db.Open();
         using var tx=db.BeginTransaction(IsolationLevel.RepeatableRead);
         try {
@@ -118,7 +122,12 @@ public sealed class CraftingRepository(string connectionString, string locale)
             if(original.Recipes.Any(r=>!edited.Recipes.Any(n=>n.Id==r.Id)) || original.Ranks.Any(r=>!edited.Ranks.Any(n=>n.Id==r.Id))
                 || original.Gathering.Any(r=>!edited.Gathering.Any(n=>n.ItemId==r.ItemId)))
                 throw new InvalidOperationException("Published IDs cannot be removed or renumbered. Retire the definition instead.");
+            if(original.Gathering.Any(r=>edited.Gathering.First(n=>n.ItemId==r.ItemId).Profession!=r.Profession))
+                throw new InvalidOperationException("A published resource profession cannot be changed.");
+            ProfessionStorage.ValidatePublished(original.Professions,edited.Professions);
+            edited.Professions.NormalizeStorage();
             edited.Items=current.Items;
+            edited.Professions.Npcs=current.Professions.Npcs;edited.Professions.Zones=current.Professions.Zones;
             var errors=CraftingRules.Validate(edited).Where(i=>i.Error).ToList();
             if(errors.Count!=0) throw new InvalidOperationException(string.Join("\n",errors));
             Execute(db,tx,"UPDATE t_crafting_settings SET a_skill_cap=@p0 WHERE a_index=1",edited.SkillCap);
@@ -135,10 +144,9 @@ public sealed class CraftingRepository(string connectionString, string locale)
             }
             foreach(var r in edited.Gathering) {
                 var old=original.Gathering.FirstOrDefault(o=>o.ItemId==r.ItemId);
-                if(old is null) throw new InvalidOperationException("Add gathering resources through their source catalog before editing their mastery here.");
-                if(System.Text.Json.JsonSerializer.Serialize(old)==System.Text.Json.JsonSerializer.Serialize(r))continue;
-                if(old.Profession!=r.Profession || old.Enabled!=r.Enabled) throw new InvalidOperationException("A published resource's profession and source availability cannot be changed in the mastery editor.");
-                Execute(db,tx,"UPDATE t_gathering_material SET a_exp_per_item=@p0,a_exp_required=@p1,a_bronze_xp_required=@p2,a_silver_xp_required=@p3 WHERE a_item_index=@p4",r.MasteryXp,r.MasteryRequired,r.BronzeRequired,r.SilverRequired,r.ItemId);
+                if(old is not null && System.Text.Json.JsonSerializer.Serialize(old)==System.Text.Json.JsonSerializer.Serialize(r))continue;
+                if(old is not null && old.Profession!=r.Profession) throw new InvalidOperationException("A published resource's profession cannot be changed.");
+                Execute(db,tx,"INSERT INTO t_gathering_material(a_item_index,a_profession,a_exp_per_item,a_exp_required,a_bronze_xp_required,a_silver_xp_required) VALUES(@p0,@p1,@p2,@p3,@p4,@p5) ON DUPLICATE KEY UPDATE a_exp_per_item=VALUES(a_exp_per_item),a_exp_required=VALUES(a_exp_required),a_bronze_xp_required=VALUES(a_bronze_xp_required),a_silver_xp_required=VALUES(a_silver_xp_required)",r.ItemId,r.Profession,r.MasteryXp,r.MasteryRequired,r.BronzeRequired,r.SilverRequired);
                 Execute(db,tx,"DELETE FROM t_gathering_material_bonus WHERE a_item_index=@p0",r.ItemId);
                 WriteTierBonuses(db,tx,"t_gathering_material_bonus","a_item_index",r.ItemId,r.Bonuses);
             }
@@ -155,6 +163,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
                 Execute(db,tx,"DELETE FROM t_crafting_master_rank_bonus WHERE a_rank_index=@p0",r.Id);
                 WriteBonuses(db,tx,"t_crafting_master_rank_bonus",r.Id,r.Bonuses);
             }
+            ProfessionStorage.Save(db,tx,original.Professions,edited.Professions);
             tx.Commit();
         } catch { try { tx.Rollback(); } catch { /* Keep the original failure. */ } throw; }
     }
