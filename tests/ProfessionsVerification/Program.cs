@@ -13,7 +13,7 @@ internal static class Program
     static void Exec(string sql){using var cmd=new MySqlCommand(sql,db);cmd.ExecuteNonQuery();}
     static string Scalar(string sql){using var cmd=new MySqlCommand(sql,db);return Convert.ToString(cmd.ExecuteScalar())??"";}
     static void Reject(Action action,string contains){try{action();}catch(Exception e){Check(e.ToString().Contains(contains,StringComparison.OrdinalIgnoreCase),"Rejection: "+contains+" ["+e.Message+"]");return;}throw new Exception("Expected rejection: "+contains);}
-    static string Players()=>Scalar("SELECT CONCAT((SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_idx,a_slot,a_item_idx,a_count) ORDER BY a_slot) FROM ep4_db.t_inven01),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_recipe_index,a_exp,a_rank) ORDER BY a_recipe_index) FROM ep4_db.t_crafting_mastery),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_item_index,a_exp,a_rank) ORDER BY a_item_index) FROM ep4_db.t_gathering_mastery),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_rank_index)) FROM ep4_db.t_crafting_master_rank),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_effect_index,HEX(a_operation_token),a_acquired_at)) FROM ep4_db.t_alchemy_infusion_unlock))");
+    static string Players()=>Scalar("SELECT CONCAT((SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_idx,a_slot,a_item_idx,a_count) ORDER BY a_slot) FROM ep4_db.t_inven01),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_recipe_index,a_exp,a_rank) ORDER BY a_recipe_index) FROM ep4_db.t_crafting_mastery),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_item_index,a_exp,a_rank) ORDER BY a_item_index) FROM ep4_db.t_gathering_mastery),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_rank_index)) FROM ep4_db.t_crafting_master_rank),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_effect_index,HEX(a_operation_token),a_acquired_at)) FROM ep4_db.t_alchemy_infusion_unlock),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_index,a_char_index,a_output_item_index,a_output_count,a_costs,a_started_at,a_ready_at,HEX(a_start_token),a_claimed_at)) FROM ep4_db.t_alchemy_work_order))");
     static ProfessionRow Row(CraftingCatalog c,string table,int id)=>c.Professions.Rows(table).Single(r=>r.Int("a_index")==id);
     static void Invalid(CraftingCatalog c,string needle)=>Check(CraftingRules.Validate(c).Any(i=>i.Error&&i.Message.Contains(needle,StringComparison.OrdinalIgnoreCase)),"Reject invalid "+needle);
     [STAThread]static int Main(string[] args)
@@ -24,7 +24,7 @@ internal static class Program
             using(var admin=new MySqlConnection(Endpoint)){admin.Open();using var cmd=new MySqlCommand("DROP DATABASE IF EXISTS ep4_data;DROP DATABASE IF EXISTS ep4_db;CREATE DATABASE ep4_data CHARACTER SET utf8mb4;CREATE DATABASE ep4_db CHARACTER SET utf8mb4;",admin);cmd.ExecuteNonQuery();}
             using var database=new MySqlConnection(Connection);db=database;db.Open();FixtureContent.Setup(Path.GetFullPath(args[0]),db);
             var catalog=Repository.Load();string players=Players();
-            Check(CraftingRepository.Tables.Length==26&&catalog.Professions.Tables.Count==15,"All26 content tables load atomically");
+            Check(CraftingRepository.Tables.Length==28&&catalog.Professions.Tables.Count==17,"All28 content tables load atomically");
             foreach(var table in ProfessionSchema.Tables) {
                 string sql="SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY COLUMN_NAME) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='ep4_data' AND TABLE_NAME='"+table.Name+"'";
                 Check(Scalar(sql)==string.Join(',',table.Fields.Select(f=>f.Column).Order(StringComparer.Ordinal)),"Metadata exactly covers "+table.Name);
@@ -36,7 +36,7 @@ internal static class Program
             Repository.Save(unrestrictedSaved,catalog);catalog=Repository.Load();
             var missingRank=CraftingCatalog.Copy(catalog);Row(missingRank,InfusionSchema.Facility,1).Set("a_required_artisan_rank",900001);
             Reject(()=>Repository.Save(catalog,missingRank),"Artisan Rank");
-            var issues=CraftingRules.Validate(catalog);Check(!issues.Any(i=>i.Error),"Canonical26-table content satisfies actual catalogue contracts: "+string.Join(";",issues.Where(i=>i.Error)));
+            var issues=CraftingRules.Validate(catalog);Check(!issues.Any(i=>i.Error),"Canonical28-table content satisfies actual catalogue contracts: "+string.Join(";",issues.Where(i=>i.Error)));
             Check(catalog.Professions.Npcs.Count>0&&catalog.Professions.Zones.Count>0,"Loaded NPC flags and zone metadata");
             var availability=CraftingCatalog.Copy(catalog);var wave=Row(availability,"t_gathering_node",2);wave.Set("a_item_index",777099);
             Check(!availability.IsGatheringAvailable(777099),"Wave base/display item does not falsely create attainable mastery points");
@@ -52,7 +52,7 @@ internal static class Program
             foreach(var vertex in edit.Professions.Rows("t_fishing_water_vertex"))vertex.Set("a_pos_x",vertex.Decimal("a_pos_x")+.123456789m);
             Repository.Save(catalog,edit);var saved=Repository.Load();
             File.WriteAllText(Path.Combine(output,"saved.json"),saved.Fingerprint());File.WriteAllText(Path.Combine(output,"draft.json"),edit.Fingerprint());
-            Check(saved.Fingerprint()==edit.Fingerprint(),"Whole26-table save round-trips FLOAT coordinate values");
+            Check(saved.Fingerprint()==edit.Fingerprint(),"Whole28-table save round-trips FLOAT coordinate values");
             Check(Row(edit,"t_fishing_water",1).Get("a_surface_height")==Row(saved,"t_fishing_water",1).Get("a_surface_height"),"Save returns the canonical database FLOAT representation without postcommit reload");
             var immediateSnapshot=CraftingCatalog.Copy(edit);edit.Recipes[0].CraftTimeMs++;Repository.Save(immediateSnapshot,edit);Check(Repository.Load().Fingerprint()==edit.Fingerprint(),"Second local save after fractional coordinate edits has no false conflict");
             var beforeConflict=Repository.Load();Exec("UPDATE t_gathering_settings SET a_decline_levels=a_decline_levels+1 WHERE a_index=1");
@@ -84,8 +84,15 @@ internal static class Program
             edit=CraftingCatalog.Copy(saved);var duplicateSite=CraftingCatalog.Copy(edit.Professions.Rows("t_herb_spawn_point")[0]);duplicateSite.Set("a_index",777100);duplicateSite.Set("a_enable",0);edit.Professions.Rows("t_herb_spawn_point").Add(duplicateSite);Invalid(edit,"unique");
             edit=CraftingCatalog.Copy(saved);Row(edit,"t_fishing_settings",1).Set("a_rod_item_index",193);Invalid(edit,"rod");
             saved=Repository.Load();edit=CraftingCatalog.Copy(saved);string recipesBefore=System.Text.Json.JsonSerializer.Serialize(saved.Recipes);
-            Row(edit,"t_alchemy_offer",1).Set("a_required_count",275);Row(edit,"t_alchemy_facility",1).Set("a_x",4423);Row(edit,"t_alchemy_facility",1).Set("a_name","Alchemist’s 'station'");
+            Row(edit,"t_alchemy_offer",1).Set("a_duration_sec",23456);Row(edit,"t_alchemy_offer",1).Set("a_output_count",2);edit.Professions.Rows(InfusionSchema.Ingredients)[0].Set("a_count",21);Row(edit,"t_alchemy_offer",1).Set("a_required_count",275);Row(edit,"t_alchemy_facility",1).Set("a_x",4423);Row(edit,"t_alchemy_facility",1).Set("a_name","Alchemist’s 'station'");
             Repository.Save(saved,edit);saved=Repository.Load();Check(saved.Fingerprint()==edit.Fingerprint(),"infusion offer and native hundredth placement round-trip atomically");
+            Check(Row(saved,InfusionSchema.Offers,1).Int("a_duration_sec")==23456&&Row(saved,InfusionSchema.Offers,1).Int("a_output_count")==2&&saved.Professions.Rows(InfusionSchema.Ingredients)[0].Int("a_count")==21,"brew duration, output quantity and secondary costs save/reload together");
+            edit=CraftingCatalog.Copy(saved);edit.Professions.Rows(InfusionSchema.Consumables)[0].Set("a_effect_index",2);Reject(()=>Repository.Save(saved,edit),"mapping cannot change");
+            edit=CraftingCatalog.Copy(saved);edit.Professions.Rows(InfusionSchema.Consumables).RemoveAt(0);Reject(()=>Repository.Save(saved,edit),"Published");
+            edit=CraftingCatalog.Copy(saved);Row(edit,InfusionSchema.Offers,1).Set("a_output_item_index",640125);Invalid(edit,"matching permanent-effect mapping");
+            edit=CraftingCatalog.Copy(saved);edit.Professions.Rows(InfusionSchema.Ingredients)[0].Set("a_item_index",640124);Invalid(edit,"ordinary stackable material");
+            Check(CraftingItemReferences.Read(Connection,640124).Any(s=>s.Contains("Brewed potion output"))&&CraftingItemReferences.Read(Connection,640124).Any(s=>s.Contains("Permanent potion effect")),"item editor links include brewing outputs and permanent-effect mappings");
+            Reject(()=>Exec(CraftingItemReferences.DeleteGuard("ep4_data",640124)+"DELETE FROM t_item WHERE a_index=640124;"),"constraint");
             Check(System.Text.Json.JsonSerializer.Serialize(saved.Recipes)==recipesBefore,"infusion edits preserve every existing recipe and mastery definition");
             edit=CraftingCatalog.Copy(saved);Row(edit,"t_alchemy_effect",1).Set("a_skill_index",504);Reject(()=>Repository.Save(saved,edit),"cannot change");
             edit=CraftingCatalog.Copy(saved);edit.Professions.Rows("t_alchemy_offer").RemoveAt(0);Reject(()=>Repository.Save(saved,edit),"Published");

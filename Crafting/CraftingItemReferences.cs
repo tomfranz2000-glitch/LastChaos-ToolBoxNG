@@ -17,7 +17,10 @@ public static class CraftingItemReferences
         ("t_herb_loot", "a_item_index", "Herb harvest outcome"),
         ("t_fishing_settings", "a_rod_item_index", "Required fishing rod"),
         ("t_fishing_loot", "a_item_index", "Fishing catch"),
-        ("t_alchemy_effect", "a_item_index", "Permanent infusion potion")];
+        ("t_alchemy_effect", "a_item_index", "Original infusion potion"),
+        ("t_alchemy_offer", "a_output_item_index", "Brewed potion output"),
+        ("t_alchemy_ingredient", "a_item_index", "Brewing ingredient"),
+        ("t_alchemy_consumable", "a_item_index", "Permanent potion effect")];
 
     public static bool HasSchema(MySqlConnection db)
     {
@@ -45,7 +48,8 @@ public static class CraftingItemReferences
                     "t_gathering_node_loot"=>"CONCAT(a_node_index,' / ',a_slot)",
                     "t_herb_loot"=>"CONCAT(a_population_index,' / ',a_slot)",
                     "t_fishing_loot"=>"CONCAT(a_water_index,' / ',a_slot)",
-                    "t_gathering_tool"=>"CAST(a_item_index AS CHAR)",
+                    "t_gathering_tool" or "t_alchemy_consumable"=>"CAST(a_item_index AS CHAR)",
+                    "t_alchemy_ingredient"=>"CONCAT(a_offer_index,' / ',a_slot)",
                     _=>"CAST(a_index AS CHAR)"
                 };
                 using var source=new MySqlCommand($"SELECT {key} FROM {use.Table} WHERE {use.Field}=@item ORDER BY 1",db);

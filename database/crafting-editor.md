@@ -2,7 +2,7 @@
 
 Open **Professions Editor** from the toolbox editor list. **Crafting Editor — Legacy** continues to edit `t_factory_item`; it does not control the new system.
 
-The new editor uses the toolbox's configured content database and item locale. It requires the game's migrations through **0039**. It does not apply migrations, create tables, or change player progression.
+The new editor uses the toolbox's configured content database and item locale. It requires the game's migrations through **0042**. It does not apply migrations, create tables, or change player progression.
 
 ## Deploying toolbox updates
 
@@ -136,7 +136,7 @@ and no-gain levels stay independent. Raise those endpoints for new training cont
 when needed; raising the global cap alone does not change a recipe's chances.
 **Validate / Overview** warns about recipes requiring a level above the current cap.
 
-The current editor requires migrations through 0039 and matching client/GameServer
+The current editor requires migrations through 0042 and matching client/GameServer
 builds. Subsequent cap edits are purely database driven.
 
 ## Alchemy infusions
@@ -144,11 +144,27 @@ builds. Subsequent cap edits are purely database driven.
 The **Infusions** section configures the private-hall Alchemy station. It is
 separate from Alchemy recipe mastery: an infusion grants the original potion's
 full existing skill permanently, rather than copying a percentage of its stats.
-The initial four offers consume **250** Power Potions, Super Haste Potions,
-Berserker Potions, or Platinum Adrenaline respectively.
+The initial four recipes consume **250** Power Potions, Super Haste Potions,
+Berserker Potions, or Platinum Adrenaline respectively, plus two secondary
+materials. They produce one tradable permanent potion after **5, 6, 8 or 10
+hours**. Brewing advances while offline; consuming the finished potion grants
+the recipient the permanent effect. Already knowing that effect does not block
+production.
 
-- **Offers:** choose a named permanent effect, set the potion quantity and display
-  order, and enable or retire the offer. Existing offer IDs cannot be deleted.
+- **Brewing recipes:** choose the permanent effect and named finished potion,
+  set original-potion cost, output quantity, hours/minutes/seconds and display
+  order, and enable or retire the recipe. Accepted jobs keep their original costs,
+  output and completion time when you edit a recipe. Existing IDs are retained.
+- **Extra ingredients:** select a recipe and add up to eight different ordinary
+  stackable materials, with quantities. These are additional to the source-potion
+  cost. Currency and permanent potions cannot become ingredients.
+- **Permanent potions:** map a new finished item to its exact permanent effect.
+  Create its inventory definition in Item Editor first: type 6/subtype 5, no ordinary timed skill (`a_num_0=0`, `a_num_1=0`),
+  max use -1, Count/Exchange/Trade flags (Drop optional),
+  and enough stack capacity for one output batch. Once saved, item and effect
+  IDs cannot be retargeted or removed: older items and jobs retain their meaning.
+  Up to 64 mappings are supported. Recipe outputs may change to another valid
+  mapping without invalidating an existing job.
 - **Permanent effects:** select the original item for a new definition. The skill
   and level are derived from that item and shown read-only. Once saved, the
   effect ID, item, skill and level are fixed; add another definition for a
@@ -169,13 +185,13 @@ or below the skill prototype's maximum. Save rechecks current item/skill/magic
 metadata in its transaction. Skill definitions remain in the existing Skill and
 Magic editors; this section does not copy or modify them.
 
-Apply game migration **0039** and matching client/server first. Save, then reopen
+Apply game migrations through **0042** and matching client/server first. Save, then reopen
 the station to refresh offers. Placement/model edits may require re-entering the
 private hall; new model/texture files need normal client asset deployment.
 
 ## Save, reload and version control
 
-Saves affect these 26 **authored content** tables only:
+Saves affect these 28 **authored content** tables only:
 
 - `t_crafting_settings`
 - `t_crafting_recipe`, `t_crafting_ingredient`, `t_crafting_manual`, `t_crafting_bonus_output`
@@ -185,19 +201,19 @@ Saves affect these 26 **authored content** tables only:
 - `t_gathering_settings`, `t_gathering_node`, `t_gathering_node_loot`, `t_gathering_tool`, `t_gathering_profile`
 - `t_herb_population`, `t_herb_spawn_point`, `t_herb_loot`
 - `t_fishing_settings`, `t_fishing_water`, `t_fishing_water_vertex`, `t_fishing_loot`
-- `t_alchemy_effect`, `t_alchemy_offer`, `t_alchemy_facility`
+- `t_alchemy_effect`, `t_alchemy_consumable`, `t_alchemy_offer`, `t_alchemy_ingredient`, `t_alchemy_facility`
 
-The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 26 tables must be InnoDB; unreviewed custom triggers are refused.
+The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 28 tables must be InnoDB; unreviewed custom triggers are refused.
 
 For edits that use already deployed item definitions and artwork, reopen `/craft` for recipes, `/gather` for gathering resource mastery, or `/artisan` for Artisan Ranks. Ordinary catalogue tuning needs no rebuild or restart. Actual herb populations/sites/loot additionally require administrator `/herbpop reload`; changes to the enabled population ID/zone/NPC ownership set require GameServer restart. Static NPC placements and new prototypes follow their normal deployment path. The Overview apply guide explains these distinctions. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
 
-After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 26 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
+After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 28 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
 
 Review and commit the resulting `x64-server/db/seeds/ep4_data` diff. Export new or changed `t_item` content separately, and promote exported client data into the game's authored asset tree. This button never exports player XP, learned recipes, earned ranks, inventory or character stat points.
 
-The Toolbox's **Record saved content in Git** button also includes all three
+The Toolbox's **Record saved content in Git** button also includes all five
 authored infusion tables. Character-owned `ep4_db.t_alchemy_infusion_unlock`,
-purchase tokens and acquired timestamps are explicitly excluded.
+`ep4_db.t_alchemy_work_order` jobs/receipts, purchase tokens and acquired timestamps are explicitly excluded.
 
 ## Existing engine limits
 

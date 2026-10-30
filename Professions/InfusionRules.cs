@@ -9,8 +9,9 @@ public sealed record InfusionPotion(int ItemId,int SkillId,int SkillLevel,string
 public sealed class InfusionMetadata
 {
     public Dictionary<int,InfusionPotion> Potions { get; } = [];
+    public Dictionary<int,int> MaxUses { get; } = [];
     public static readonly IReadOnlyDictionary<string,string[]> Columns = new Dictionary<string,string[]> {
-        ["t_item"]=["a_index","a_type_idx","a_subtype_idx","a_enable","a_num_0","a_num_1"],
+        ["t_item"]=["a_index","a_type_idx","a_subtype_idx","a_enable","a_num_0","a_num_1","a_max_use"],
         ["t_skill"]=["a_index","a_type","a_flag","a_targetType","a_maxLevel","a_useState","a_appState"],
         ["t_skilllevel"]=["a_index","a_level","a_durtime","a_use_count","a_magicIndex1","a_magicLevel1","a_magicIndex2","a_magicLevel2","a_magicIndex3","a_magicLevel3"],
         ["t_magic"]=["a_index","a_type","a_subtype","a_damagetype"],
@@ -32,7 +33,7 @@ public sealed class InfusionMetadata
     public static InfusionMetadata FromRows(IReadOnlyDictionary<string,List<Dictionary<string,string>>> tables,IReadOnlyDictionary<int,string>? names=null)
     {
         static int N(Dictionary<string,string> r,string c)=>int.TryParse(r.GetValueOrDefault(c),NumberStyles.Integer,CultureInfo.InvariantCulture,out int n)?n:0;
-        var result=new InfusionMetadata();var skills=tables["t_skill"].ToDictionary(r=>N(r,"a_index"));
+        var result=new InfusionMetadata();foreach(var item in tables["t_item"])result.MaxUses[N(item,"a_index")]=N(item,"a_max_use");var skills=tables["t_skill"].ToDictionary(r=>N(r,"a_index"));
         var levels=tables["t_skilllevel"].ToDictionary(r=>(N(r,"a_index"),N(r,"a_level")));
         var magics=tables["t_magic"].ToDictionary(r=>N(r,"a_index"));
         var magicLevels=tables["t_magiclevel"].Select(r=>(N(r,"a_index"),N(r,"a_level"))).ToHashSet();
@@ -61,7 +62,9 @@ public static class InfusionRules
     public static List<CraftingIssue> Validate(CraftingCatalog c)
     {
         var issues=new List<CraftingIssue>();void Error(string target,string message)=>issues.Add(new(true,target,message));
-        var p=c.Professions;var effects=p.Rows(InfusionSchema.Effects);var offers=p.Rows(InfusionSchema.Offers);var facilities=p.Rows(InfusionSchema.Facility);
+        var p=c.Professions;var effects=p.Rows(InfusionSchema.Effects);var offers=p.Rows(InfusionSchema.Offers);var facilities=p.Rows(InfusionSchema.Facility);var products=p.Rows(InfusionSchema.Consumables);var ingredients=p.Rows(InfusionSchema.Ingredients);
+        var productIds=products.Select(r=>r.Int("a_item_index")).ToHashSet();
+        if(products.Count>64)Error("Permanent potions","At most 64 permanent potion mappings are supported, including retired outputs.");
         if(effects.Count>16||offers.Count>16)Error("Infusions","At most 16 permanent effects and 16 offers, including retired entries, are supported.");
         var skills=new HashSet<int>();var magics=new HashSet<int>();
         foreach(var effect in effects) {
@@ -75,7 +78,37 @@ public static class InfusionRules
             }
             if(!skills.Add(skill))Error(target,"Each permanent effect must use a unique skill ID.");
         }
-        foreach(var offer in offers)if(!effects.Any(e=>e.Int("a_index")==offer.Int("a_effect_index")))Error("Infusion offer #"+offer.Int("a_index"),"Choose an existing permanent effect.");
+        foreach(var effect in effects)if(productIds.Contains(effect.Int("a_item_index")))Error("Infusion effect #"+effect.Int("a_index"),"A permanent finished potion cannot be an original source potion.");
+        foreach(var product in products) {
+            string target="Permanent potion #"+product.Int("a_item_index");
+            var effect=effects.FirstOrDefault(e=>e.Int("a_index")==product.Int("a_effect_index"));
+            if(effect==null){Error(target,"Choose an existing permanent effect.");continue;}
+            int item=product.Int("a_item_index");
+            if(!c.Items.TryGetValue(item,out var data)||!data.Enabled||!data.Stackable||data.Rebirth||data.Type!=6||data.Subtype!=5||(data.Flags&25)!=25||(data.Flags&~27L)!=0||p.Infusions.MaxUses.GetValueOrDefault(item,0)!=-1)
+                Error(target,"The finished item must be an enabled ordinary stackable potion (type 6, subtype 5), tradable/exchangeable, unlimited-use metadata (-1), and use only Count/Drop/Exchange/Trade flags.");
+            if(!p.Infusions.Potions.TryGetValue(item,out var potion)||potion.SkillId!=0||potion.SkillLevel!=0)
+                Error(target,"Finished potion must have no ordinary timed skill (item num 0 and num 1 both zero). Its immutable effect mapping supplies the original potion effect.");
+        }
+        foreach(var offer in offers) {
+            string target="Brewing recipe #"+offer.Int("a_index");
+            var effect=effects.FirstOrDefault(e=>e.Int("a_index")==offer.Int("a_effect_index"));
+            if(effect==null){Error(target,"Choose an existing permanent effect.");continue;}
+            int output=offer.Int("a_output_item_index"),source=effect.Int("a_item_index");
+            if(!c.Items.TryGetValue(source,out var sourceData)||!sourceData.Enabled||!sourceData.Stackable||sourceData.Rebirth||source==19||productIds.Contains(source)||(sourceData.Flags&((1L<<7)|(1L<<16)|(1L<<18)|(1L<<22)))!=0||p.Infusions.MaxUses.GetValueOrDefault(source,0)!=-1)
+                Error(target,"Original source cost must be an ordinary stackable potion with max use -1, without mix, timed, zone-deletion or quest flags.");
+            if(output==source)Error(target,"Finished potion must differ from the original source potion.");
+            if(!products.Any(r=>r.Int("a_item_index")==output&&r.Int("a_effect_index")==offer.Int("a_effect_index")))Error(target,"Choose a finished potion with a matching permanent-effect mapping.");
+            if(!c.Items.TryGetValue(output,out var data)||data.StackLimit<offer.Int("a_output_count"))Error(target,"The finished quantity must fit the output item's stack limit.");
+            var extra=ingredients.Where(r=>r.Int("a_offer_index")==offer.Int("a_index")).ToList();
+            if(extra.Count>8||extra.Select(r=>r.Int("a_item_index")).Distinct().Count()!=extra.Count)Error(target,"Use at most eight different extra ingredients, with no duplicate items.");
+            if(extra.Any(r=>r.Int("a_item_index")==source))Error(target,"Extra ingredients cannot repeat the original potion; edit its original-potion quantity instead.");
+        }
+        foreach(var ingredient in ingredients) {
+            int item=ingredient.Int("a_item_index");string target="Extra ingredient #"+ingredient.Int("a_offer_index")+" / "+ingredient.Int("a_slot");
+            if(!offers.Any(r=>r.Int("a_index")==ingredient.Int("a_offer_index")))Error(target,"Choose an existing brewing recipe.");
+            if(!c.Items.TryGetValue(item,out var data)||!data.Enabled||!data.Stackable||data.Rebirth||item==19||productIds.Contains(item)||(data.Flags&((1L<<7)|(1L<<16)|(1L<<18)|(1L<<22)))!=0||p.Infusions.MaxUses.GetValueOrDefault(item,0)!=-1)
+                Error(target,"Choose an enabled ordinary stackable material with max use -1, excluding currency, permanent potions, mix, timed, zone-deletion and quest items.");
+        }
         if(facilities.Count!=1||facilities[0].Int("a_index")!=1)Error("Alchemy station","Exactly one station definition with ID 1 is required.");
         foreach(var facility in facilities) {
             int requiredRank=facility.Int("a_required_artisan_rank");

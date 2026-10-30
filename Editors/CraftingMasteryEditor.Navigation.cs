@@ -46,7 +46,9 @@ public sealed partial class CraftingMasteryEditor
         Entry(craft,"Crafting skill cap",()=>tabs.SelectedIndex=4);
         var infusions=navigation.Nodes.Add("Infusions");infusions.Name="Infusions";
         infusions.Tag=(Action)(()=>NavigateProfessionPage(5,InfusionSchema.Offers));
-        Entry(infusions,"Potion offers",()=>NavigateProfessionPage(5,InfusionSchema.Offers));
+        Entry(infusions,"Brewing recipes",()=>NavigateProfessionPage(5,InfusionSchema.Offers));
+        Entry(infusions,"Extra ingredients",()=>NavigateProfessionPage(5,InfusionSchema.Ingredients));
+        Entry(infusions,"Permanent potions",()=>NavigateProfessionPage(5,InfusionSchema.Consumables));
         Entry(infusions,"Permanent effects",()=>NavigateProfessionPage(5,InfusionSchema.Effects));
         Entry(infusions,"Alchemy station",()=>NavigateProfessionPage(5,InfusionSchema.Facility));
         var gather=navigation.Nodes.Add("Gathering");
@@ -98,6 +100,7 @@ public sealed partial class CraftingMasteryEditor
     private void NavigateInitialItem(int item)
     {
         if(catalog.Items.TryGetValue(item,out var value)&&value.Manual) { SelectNavigation("Teaching items");bookItem.Value=item;tabs.SelectedIndex=1;pageHeading.Text="Teaching items"; }
+        else if(catalog.Professions.Rows(InfusionSchema.Consumables).Any(r=>r.Int("a_item_index")==item)) {SelectNavigation("Permanent potions");NavigatePermanentPotion(item);pageHeading.Text="Permanent potions";}
         else if(catalog.Professions.Rows(InfusionSchema.Effects).FirstOrDefault(r=>r.Int("a_item_index")==item) is { } infusion) {SelectNavigation("Permanent effects");NavigateInfusionEffect(infusion.Int("a_index"));pageHeading.Text="Permanent infusion effects";}
         else if(catalog.Gathering.Any(r=>r.ItemId==item)) OpenGatheringMastery(item);
         else if(catalog.Professions.Rows("t_gathering_tool").FirstOrDefault(r=>r.Int("a_item_index")==item) is { } tool) { NavigateProfessionPage(tool.Int("a_profession"),"t_gathering_tool");pageHeading.Text="Gathering tools"; }

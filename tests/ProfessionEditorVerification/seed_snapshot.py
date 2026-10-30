@@ -30,7 +30,7 @@ for path in seed.glob('*.sql'):
 refs = set()
 for rows in tables.values():
     for row in rows:
-        for column in ('a_item_index', 'a_output_item', 'a_manual_item', 'a_rod_item_index', 'a_visual_tool_index'):
+        for column in ('a_item_index', 'a_output_item', 'a_output_item_index', 'a_manual_item', 'a_rod_item_index', 'a_visual_tool_index'):
             if column in row: refs.add(int(row[column]))
 items = []
 for raw in sql_rows(seed / 't_item.sql'):

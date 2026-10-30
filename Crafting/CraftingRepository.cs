@@ -48,7 +48,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
         Rows(db, tx, "SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", Tables.Select(t => "'" + t + "'")) + ")", r => found[r.GetString(0)] = r.GetString(1));
         if (Tables.Any(t => !found.TryGetValue(t, out string? e) || e != "InnoDB"))
-            throw new InvalidOperationException($"Professions require all {Tables.Length} InnoDB content tables. Apply the game's migrations through 0039; this editor never creates or changes schema.");
+            throw new InvalidOperationException($"Professions require all {Tables.Length} InnoDB content tables. Apply the game's migrations through 0042; this editor never creates or changes schema.");
         try {
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_crafting_mastery LIMIT 0",_=>{});
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_gathering_material LIMIT 0",_=>{});

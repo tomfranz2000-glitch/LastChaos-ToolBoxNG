@@ -73,8 +73,8 @@ static class Program
         var c = Load(args[1]); var initial = c.Fingerprint();
         Check(!InfusionRules.Validate(c).Any(i=>i.Error),"authored infusion catalogue matches supported original potion effects");
         Check(c.Professions.Rows(InfusionSchema.Effects).Count==4&&c.Professions.Rows(InfusionSchema.Offers).All(r=>r.Int("a_required_count")==250),"four initial offers each consume 250 original potions");
-        Check(InfusionSchema.Tables.All(t=>ContentRecordingPolicy.AllowlistedTables.Any(a=>a.Key=="ep4_data/"+t.Name))&&!ContentRecordingPolicy.AllowlistedTables.Any(t=>t.Table=="t_alchemy_infusion_unlock"),"content recording includes authored infusion tables and excludes player unlocks");
-        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==121,"recording policy exactly matches all 121 authored seed tables");
+        Check(InfusionSchema.Tables.All(t=>ContentRecordingPolicy.AllowlistedTables.Any(a=>a.Key=="ep4_data/"+t.Name))&&!ContentRecordingPolicy.AllowlistedTables.Any(t=>t.Table is "t_alchemy_infusion_unlock" or "t_alchemy_work_order"),"content recording includes authored infusion tables and excludes player unlocks");
+        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==123,"recording policy exactly matches all 123 authored seed tables");
         var copied=CraftingCatalog.Copy(c);Check(copied.Fingerprint()==initial&&!JsonSerializer.Serialize(copied).Contains("MagicIds"),"all authored infusion rows round-trip exactly without read-only metadata or progression");
         CraftingCatalog Draft() {var draft=CraftingCatalog.Copy(c);draft.Items=c.Items;draft.Professions.Infusions=c.Professions.Infusions;return draft;}
         void Deny(Action action,string label){try{action();}catch(InvalidOperationException){Check(true,label);return;}throw new Exception(label);}
@@ -82,11 +82,33 @@ static class Program
             var draft=Draft();draft.Professions.Rows(InfusionSchema.Effects)[0].Set(column,999999);
             Deny(()=>ProfessionStorage.ValidatePublished(c.Professions,draft.Professions),"published effect identity cannot change: "+column);
         }
-        foreach(string table in new[]{InfusionSchema.Effects,InfusionSchema.Offers,InfusionSchema.Facility}) {
+        foreach(string table in new[]{InfusionSchema.Effects,InfusionSchema.Offers,InfusionSchema.Facility,InfusionSchema.Consumables}) {
             var draft=Draft();draft.Professions.Rows(table).RemoveAt(0);Deny(()=>ProfessionStorage.ValidatePublished(c.Professions,draft.Professions),"published rows cannot disappear: "+table);
         }
         var offerDraft=Draft();offerDraft.Professions.Rows(InfusionSchema.Offers)[0].Set("a_required_count",300);offerDraft.Professions.Rows(InfusionSchema.Offers)[0].Set("a_enabled",0);
         ProfessionStorage.ValidatePublished(c.Professions,offerDraft.Professions);Check(!InfusionRules.Validate(offerDraft).Any(i=>i.Error),"offer cost and availability remain editable without changing acquired effect identity");
+        var retargeted=Draft();retargeted.Professions.Rows(InfusionSchema.Consumables)[0].Set("a_effect_index",2);
+        Deny(()=>ProfessionStorage.ValidatePublished(c.Professions,retargeted.Professions),"published output effect mapping cannot be retargeted");
+        foreach(int durationSeconds in new[]{0,604801}) {
+            var draft=Draft();draft.Professions.Rows(InfusionSchema.Offers)[0].Set("a_duration_sec",durationSeconds);
+            Check(ProfessionRules.Validate(draft).Any(i=>i.Error),"brewing duration outside one second to seven days is rejected: "+durationSeconds);
+        }
+        foreach(long flags in new long[]{1,9,17,25|4,27|(1L<<16),27|(1L<<22)}) {
+            var draft=Draft();draft.Items=new(c.Items);draft.Items[640124]=draft.Items[640124] with {Flags=flags};
+            Check(InfusionRules.Validate(draft).Any(i=>i.Error),"nontradable or special finished potion flags rejected: "+flags);
+        }
+        var fallback=Draft();var fallbackMetadata=JsonSerializer.Deserialize<Snapshot>(File.ReadAllText(args[1]))!.InfusionMetadata;
+        var fallbackItem=fallbackMetadata["t_item"].Single(r=>N(r,"a_index")==640124);fallbackItem["a_num_0"]="505";fallbackItem["a_num_1"]="1";
+        fallback.Professions.Infusions=InfusionMetadata.FromRows(fallbackMetadata);
+        Check(InfusionRules.Validate(fallback).Any(i=>i.Error&&i.Message.Contains("no ordinary timed skill")),"permanent products cannot carry a timed fallback skill");
+        var wrongOutput=Draft();wrongOutput.Professions.Rows(InfusionSchema.Offers)[0].Set("a_output_item_index",640125);
+        Check(InfusionRules.Validate(wrongOutput).Any(i=>i.Error),"recipe rejects a finished potion mapped to a different permanent effect");
+        var hugeBatch=Draft();hugeBatch.Professions.Rows(InfusionSchema.Offers)[0].Set("a_output_count",1000);
+        Check(InfusionRules.Validate(hugeBatch).Any(i=>i.Error),"finished quantity cannot exceed actual product stack limit");
+        var repeatedCost=Draft();var repeated=CraftingCatalog.Copy(repeatedCost.Professions.Rows(InfusionSchema.Ingredients)[0]);repeated.Set("a_slot",2);repeatedCost.Professions.Rows(InfusionSchema.Ingredients).Add(repeated);
+        Check(InfusionRules.Validate(repeatedCost).Any(i=>i.Error),"secondary ingredients cannot charge the same item twice");
+        var recursive=Draft();recursive.Professions.Rows(InfusionSchema.Ingredients)[0].Set("a_item_index",640124);
+        Check(InfusionRules.Validate(recursive).Any(i=>i.Error),"permanent output potions cannot recursively become ingredients");
         foreach(string path in new[]{@"C:\outside.smc",@"Data\..\outside.smc",@"Data\World\bad.txt",@"Data\World\äm.smc"}) {
             var draft=Draft();draft.Professions.Rows(InfusionSchema.Facility)[0].Set("a_model",path);Check(InfusionRules.Validate(draft).Any(i=>i.Error),"unsafe station model path rejected: "+path);
         }
@@ -133,7 +155,7 @@ static class Program
         foreach (var size in new[] { new Size(1420, 900), new Size(1100, 720) })
         {
             string suffix = $"-{size.Width}x{size.Height}"; nav.SelectedNode = nav.Nodes.Find("Overview", true).Single(); Capture("overview" + suffix, size);
-            foreach (var sample in new[] { (1, "t_gathering_node", "mining"), (2, "t_herb_population", "herbalism"), (3, "t_fishing_water", "fishing"), (4, "t_gathering_node", "wave"), (2, "t_gathering_settings", "herbalism-rules"), (5,InfusionSchema.Offers,"infusion-offers"),(5,InfusionSchema.Effects,"infusion-effects"),(5,InfusionSchema.Facility,"infusion-station") })
+            foreach (var sample in new[] { (1, "t_gathering_node", "mining"), (2, "t_herb_population", "herbalism"), (3, "t_fishing_water", "fishing"), (4, "t_gathering_node", "wave"), (2, "t_gathering_settings", "herbalism-rules"), (5,InfusionSchema.Offers,"infusion-offers"),(5,InfusionSchema.Effects,"infusion-effects"),(5,InfusionSchema.Ingredients,"brew-ingredients"),(5,InfusionSchema.Consumables,"permanent-potions"),(5,InfusionSchema.Facility,"infusion-station") })
             {
                 Navigate(sample.Item1, sample.Item2); Capture(sample.Item3 + suffix, size);
                 var panel = (Panel)Detail(sample.Item1, sample.Item2);
@@ -215,6 +237,19 @@ static class Program
         var cost=(NumericUpDown)offersPanel.Controls.Find("a_required_count",true).Single();Check(cost.Value==250,"offer editor shows a readable 250-potion cost");cost.Value=251;
         Check(c.Professions.Rows(InfusionSchema.Offers)[0].Int("a_required_count")==251,"actual offer control edits only the draft potion quantity");cost.Value=250;
         var enabled=(CheckBox)offersPanel.Controls.Find("a_enabled",true).Single();enabled.Checked=false;Check(!c.Professions.Rows(InfusionSchema.Offers)[0].Enabled,"retiring an offer updates its actual enabled field");enabled.Checked=true;
+        var brew=c.Professions.Rows(InfusionSchema.Offers)[0];int oldSeconds=brew.Int("a_duration_sec");
+        var hours=(NumericUpDown)offersPanel.Controls.Find("a_duration_sec_hours",true).Single();
+        var minutes=(NumericUpDown)offersPanel.Controls.Find("a_duration_sec_minutes",true).Single();
+        var seconds=(NumericUpDown)offersPanel.Controls.Find("a_duration_sec_seconds",true).Single();
+        Check(hours.Value==oldSeconds/3600&&minutes.Value==oldSeconds%3600/60&&seconds.Value==oldSeconds%60,"brewing time is displayed in readable hours, minutes and seconds");
+        minutes.Value=7;seconds.Value=9;Check(brew.Int("a_duration_sec")==oldSeconds/3600*3600+429,"duration controls store exact seconds without rounding");minutes.Value=oldSeconds%3600/60;seconds.Value=oldSeconds%60;
+        var outputCount=(NumericUpDown)offersPanel.Controls.Find("a_output_count",true).Single();outputCount.Value=2;Check(brew.Int("a_output_count")==2,"finished quantity edits normal draft field");outputCount.Value=1;
+        Navigate(5,InfusionSchema.Consumables);var productsPanel=Detail(5,InfusionSchema.Consumables);
+        Check(!productsPanel.Controls.Find("a_item_index",true).Single().Enabled&&!productsPanel.Controls.Find("a_effect_index",true).Single().Enabled,"published permanent potion item/effect mapping is locked in the editor");
+        Navigate(5,InfusionSchema.Ingredients);var ingredientPanel=Detail(5,InfusionSchema.Ingredients);
+        var ingredientCount=(NumericUpDown)ingredientPanel.Controls.Find("a_count",true).Single();decimal ingredientOld=ingredientCount.Value;ingredientCount.Value=ingredientOld+1;
+        Check(c.Professions.Rows(InfusionSchema.Ingredients)[0].Int("a_count")==ingredientOld+1,"secondary ingredient quantity edits the selected recipe cost");ingredientCount.Value=ingredientOld;
+        Check(c.Fingerprint()==initial,"browsing and restoring brewing edits preserves all catalogue bytes");
         Navigate(5,InfusionSchema.Facility);var stationPanel=Detail(5,InfusionSchema.Facility);
         int ChoiceId(object choice)=>(int)choice.GetType().GetProperty("Id")!.GetValue(choice)!;
         ComboBox StationRank()=>(ComboBox)Detail(5,InfusionSchema.Facility).Controls.Find("a_required_artisan_rank",true).Single();

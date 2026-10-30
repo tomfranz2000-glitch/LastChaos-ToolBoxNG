@@ -1,6 +1,6 @@
 namespace LastChaos_ToolBoxNG.Professions;
 
-public enum FieldKind { Integer,Decimal,Text,Boolean,Item,Npc,Zone,Profile,Parent,Geometry,ArtisanRank }
+public enum FieldKind { Integer,Decimal,Text,Boolean,Item,Npc,Zone,Profile,Parent,Geometry,ArtisanRank,Duration }
 public sealed record ProfessionField(string Column,string Label,FieldKind Kind=FieldKind.Integer,string Group="General",string Help="",decimal Min=0,decimal Max=int.MaxValue,decimal Scale=1,int DecimalPlaces=0,bool Identity=false,bool Reserved=false,string ReferenceTable="",string Default="0");
 public sealed record ProfessionTable(string Name,string Title,string Help,string[] Keys,ProfessionField[] Fields,string Category="");
 public static class ProfessionSchema
