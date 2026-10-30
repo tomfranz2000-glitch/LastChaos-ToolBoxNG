@@ -37,7 +37,7 @@ editors and normal deployment process.
 2. Add ingredients by ID or the existing item picker. Item names, icons, Open item and Where used are available for each row.
 3. In **Learning**, choose automatic availability or **Requires a teaching item**, then assign one or more enabled manual items. The **Teaching Items** tab can assign a single book to several recipes at once. Supported books are non-timed Once items with subtype 1, 2 or 4.
 4. Set minimum skill and the skill at which gains stop. The editor previews the game's derived 100% / 60% / 20% / 0% bands. Intermediate thresholds are not stored.
-5. Set mastery XP per craft and cumulative Bronze, Silver and Gold XP targets. Each successive tier must cost more additional XP than its predecessor. Assign up to eight permanent flat stat bonuses per tier; later tiers add their rewards to earlier ones. Zero XP per craft pauses progression without removing the required targets or earned rewards.
+5. Set mastery XP per craft and cumulative Bronze, Silver and Gold XP targets. Each successive tier must cost more additional XP than its predecessor. Assign up to eight permanent bonuses per tier; later tiers add their rewards to earlier ones. Zero XP per craft pauses progression without removing the required targets or earned rewards.
 6. Optional **Bonus outputs** preserve processing's random extras. This is one exclusive roll per craft, with up to eight outcomes and two decimal places of percentage precision. The unused percentage gives no extra item.
 7. **Save all changes** validates and commits the entire draft in one transaction.
 
@@ -162,7 +162,13 @@ Review and commit the resulting `x64-server/db/seeds/ep4_data` diff. Export new 
 
 ## Existing engine limits
 
-The editor exposes authored data, not a new rules engine. Existing limits remain: 4,096 recipes, 64 ranks (both including retired entries), maximum supported skill 65,535, ten materials, eight teaching manuals, eight random outputs, eight distinct bonus effects per mastery tier (eight per Artisan Rank), and craft durations of 0.001–600 seconds. Supported bonuses are the game's flat effects 0–23 and HP/MP regeneration 102/103. Individual amounts and the combined total in each underlying stat channel may not exceed 32,767; overlapping All/Physical effects and retired rewards are included.
+The editor exposes authored data, not a new rules engine. Existing limits remain: 4,096 recipes, 64 ranks (both including retired entries), maximum supported skill 65,535, ten materials, eight teaching manuals, eight random outputs, eight distinct bonus effects per mastery tier (eight per Artisan Rank), and craft durations of 0.001–600 seconds. Supported bonuses include the game's flat effects 0–23 and HP/MP regeneration 102/103, plus the mastery-only effects below (requires game migration 0038 and matching client/server).
+
+Every recipe, resource and Artisan Rank bonus grid uses readable amounts with an explicit Units column. Bulk recipe editing uses the same units. Flat bonuses remain whole points. Movement Speed accepts values such as **0.6 speed units**; Attack Interval Reduction accepts **6%** (a shorter interval between attacks, not a 6% increase in attacks per second); PvE Double Damage Chance accepts **4%**. The percentage effects and movement accept at most two decimal places. This chance is for normal attacks against NPCs; it does not add a PvP or skill-damage proc.
+
+Tier rows are additional rewards: Bronze 0.15, Silver 0.15 and Gold 0.3 movement add up to **0.6 at Gold**. Recipe/resource summaries, Artisan Rank cumulative summaries and the overview show the combined amount in the same readable units. Earlier tiers and previously earned retired definitions remain part of the total.
+
+Storage stays integer-based and is converted only at the editor boundary. Effects 1000/1001/1002 respectively store hundredths of a speed unit, interval-reduction basis points and chance basis points: **0.6→60**, **6%→600**, **4%→400**. These are mastery effects, not equipment option IDs. Individual amounts and combined totals across crafting, gathering and Artisan Ranks must stay within **327.67 movement units**, **90% interval reduction**, and **100% PvE double-damage chance**. Existing flat channels remain capped at 32,767, including overlapping All/Physical effects and retired rewards. Bonus grids reject excess precision, zero and values above the effect's limit; Save also validates the complete catalogue's combined totals.
 
 The 100/60/20 chances and one stat point per crafting skill level are still engine rules. Changing those requires coordinated game code work.
 

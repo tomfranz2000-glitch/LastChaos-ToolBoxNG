@@ -63,7 +63,7 @@ public sealed partial class CraftingMasteryEditor
     {
         if(selectedRecipe is not Recipe r || recipeSummary.IsDisposed) return;
         recipeSummary.Text=$"Skill bands (cap {catalog.SkillCap}): "+CraftingRules.Training(r,catalog.SkillCap)+"\r\n"+CraftingRules.MasteryEstimate(r)+
-            $"\r\nBronze {r.BronzeRequired:N0} XP; Silver {r.SilverRequired:N0} XP; Gold {r.MasteryRequired:N0} XP. Each tier contributes one mastery point.\r\nTargets are cumulative. Each next rank must cost more additional XP. Bonuses add to earlier tiers; zero XP/craft pauses progression.";
+            $"\r\nBronze {r.BronzeRequired:N0} XP; Silver {r.SilverRequired:N0} XP; Gold {r.MasteryRequired:N0} XP. Each tier contributes one mastery point.\r\nTargets are cumulative. Each next rank must cost more additional XP. Bonuses add to earlier tiers; zero XP/craft pauses progression.\r\nTotal earned by Gold: "+(r.Bonuses.Count==0?"No permanent bonus configured":CraftingRules.Rewards(r.Bonuses));
     }
     private Control ItemGrid<T>(List<T> values,Func<T> create,int limit) where T:class
     {
@@ -94,16 +94,36 @@ public sealed partial class CraftingMasteryEditor
     }
     private Control BonusGrid(List<Bonus> bonuses,bool tiered=false)
     {
-        var source=new BindingList<Bonus>(bonuses); var grid=Grid(); detailGrids.Add(grid);
+        var source=new BindingList<Bonus>(bonuses); var grid=Grid(); grid.Name="MasteryBonusGrid"; detailGrids.Add(grid);
         if(tiered) grid.Columns.Add(new DataGridViewComboBoxColumn { Name="Rank",DataPropertyName="Rank",HeaderText="Earned at",DataSource=new Dictionary<int,string>{{1,"Bronze"},{2,"Silver"},{3,"Gold"}}.ToList(),DisplayMember="Value",ValueMember="Key",FillWeight=75 });
         grid.Columns.Add(new DataGridViewComboBoxColumn { Name="Effect", DataPropertyName="Effect", HeaderText="Permanent bonus", DataSource=CraftingRules.Effects.ToList(), DisplayMember="Value", ValueMember="Key", FillWeight=160 });
-        Column(grid,"Amount","Flat amount",70); grid.DataSource=source; ConfigureEditing(grid);
+        grid.Columns.Add(new DataGridViewTextBoxColumn { Name="Amount",DataPropertyName=nameof(Bonus.DisplayAmount),HeaderText="Amount",FillWeight=65,SortMode=DataGridViewColumnSortMode.NotSortable,
+            DefaultCellStyle=new DataGridViewCellStyle { Format="0.##" } });
+        Column(grid,nameof(Bonus.DisplayUnit),"Units",105,true); grid.DataSource=source; ConfigureEditing(grid);
+        grid.CellValidating+=(_,e)=> {
+            if(e.RowIndex<0 || e.ColumnIndex<0 || grid.Columns[e.ColumnIndex].Name!="Amount" || grid.Rows[e.RowIndex].DataBoundItem is not Bonus bonus) return;
+            try {
+                MasteryBonusUnits.Store(bonus.Effect,MasteryBonusUnits.Parse(bonus.Effect,Convert.ToString(e.FormattedValue)??""));
+                grid.Rows[e.RowIndex].ErrorText="";
+            } catch(FormatException error) {e.Cancel=true;grid.Rows[e.RowIndex].ErrorText=error.Message;status.Text=error.Message;}
+        };
+        grid.CellParsing+=(_,e)=> {
+            if(e.RowIndex<0 || e.ColumnIndex<0 || grid.Columns[e.ColumnIndex].Name!="Amount" || grid.Rows[e.RowIndex].DataBoundItem is not Bonus bonus) return;
+            if(e.Value is string text) {e.Value=MasteryBonusUnits.Parse(bonus.Effect,text);e.ParsingApplied=true;}
+        };
+        bool refreshing=false;
+        grid.CellValueChanged+=(_,e)=> {
+            if(refreshing || e.RowIndex<0 || e.ColumnIndex<0 || grid.Columns[e.ColumnIndex].Name!="Effect") return;
+            try {refreshing=true;source.ResetItem(e.RowIndex);} finally {refreshing=false;}
+        };
         var tools=Flow(); tools.Controls.AddRange([Button("Add bonus",()=> {
             int rank=tiered?(grid.CurrentRow?.DataBoundItem as Bonus)?.Rank??1:3;
             if(bonuses.Count(b=>!tiered||b.Rank==rank)>=8) {status.Text="This rank already has eight bonus effects.";return;}
             int effect=CraftingRules.Effects.Keys.First(k=>bonuses.All(b=>(tiered&&b.Rank!=rank)||b.Effect!=k)); source.Add(new Bonus { Rank=rank,Effect=effect }); Changed();
         }),Button("Remove bonus",()=> { if(grid.CurrentRow?.DataBoundItem is Bonus b) { source.Remove(b); Changed(); } })]);
-        return Vertical(tools,grid);
+        var help=Label("Enter movement in speed units; interval reduction and PvE chance use percentages (up to two decimals).\r\nTier entries add together: the Gold total includes Bronze, Silver and Gold rewards.");
+        help.MaximumSize=new(650,0);
+        return Vertical(tools,help,grid);
     }
     private void ConfigureEditing(DataGridView grid)
     {
@@ -190,21 +210,42 @@ public sealed partial class CraftingMasteryEditor
         if(!CommitGrids()) return;
         var selected=recipes.SelectedRows.Cast<DataGridViewRow>().Select(row=>row.DataBoundItem).OfType<Recipe>().ToList();
         if(selected.Count==0) return;
-        using var dialog=new Form { Text=$"Bulk edit {selected.Count} recipes", Size=new(540,390), StartPosition=FormStartPosition.CenterParent };
-        var fields=Fields(); var field=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList, Width=420 };
+        using var dialog=new Form { Name="BulkRecipeEditor",Text=$"Bulk edit {selected.Count} recipes", Size=new(590,570), StartPosition=FormStartPosition.CenterParent };
+        var fields=Fields(); var field=new ComboBox { Name="BulkField",DropDownStyle=ComboBoxStyle.DropDownList, Width=460 };
         field.Items.AddRange(["Craft time (milliseconds)","Mastery XP per craft","Gold total mastery XP","Minimum skill","No skill gains at","Set / add mastery bonus","Bronze total mastery XP","Silver total mastery XP"]); field.SelectedIndex=0;
-        var value=new NumericUpDown { Maximum=int.MaxValue, Minimum=0, Value=10, Width=160 };
-        var effect=new ComboBox { DataSource=CraftingRules.Effects.ToList(), DisplayMember="Value", ValueMember="Key", Width=270, DropDownStyle=ComboBoxStyle.DropDownList };
-        var tier=new ComboBox { DataSource=new Dictionary<int,string>{{1,"Bronze"},{2,"Silver"},{3,"Gold"}}.ToList(),DisplayMember="Value",ValueMember="Key",Width=150,DropDownStyle=ComboBoxStyle.DropDownList };tier.SelectedValue=3;
-        var preview=new TextBox { Width=450, Height=140, Multiline=true, ReadOnly=true, ScrollBars=ScrollBars.Vertical };
-        void Preview()=>preview.Text=string.Join("\r\n",selected.Select(r=>$"#{r.Id} {r.Name}: {field.Text} → {value.Value}"));
-        value.ValueChanged+=(_,_)=>Preview(); field.SelectedIndexChanged+=(_,_)=>Preview(); Preview();
-        fields.Controls.AddRange([field,Label("New value"),value,Label("Effect and earned tier (for bonus changes)"),effect,tier,preview,Button("Apply to draft",()=>dialog.DialogResult=DialogResult.OK)]); dialog.Controls.Add(fields);
+        var value=new NumericUpDown { Name="BulkValue",Maximum=int.MaxValue, Minimum=0, Value=10, Width=160 };
+        var effect=new ComboBox { Name="BulkBonusEffect",DataSource=CraftingRules.Effects.ToList(), DisplayMember="Value", ValueMember="Key", Width=360, DropDownStyle=ComboBoxStyle.DropDownList };
+        var tier=new ComboBox { Name="BulkBonusTier",DataSource=new Dictionary<int,string>{{1,"Bronze"},{2,"Silver"},{3,"Gold"}}.ToList(),DisplayMember="Value",ValueMember="Key",Width=150,DropDownStyle=ComboBoxStyle.DropDownList };tier.SelectedValue=3;
+        var units=Label("New value"); var help=Label("Bonus entries add to earlier tiers. Attack interval reduction lowers the time between attacks."); help.MaximumSize=new(490,0);
+        var preview=new TextBox { Width=510, Height=120, Multiline=true, ReadOnly=true, ScrollBars=ScrollBars.Vertical };
+        void Preview() {
+            string display=field.SelectedIndex==5 && effect.SelectedValue is int key
+                ? MasteryBonusUnits.Format(key,MasteryBonusUnits.Store(key,value.Value))+" at "+tier.Text : value.Value.ToString("0.##");
+            preview.Text=string.Join("\r\n",selected.Select(r=>$"#{r.Id} {r.Name}: {field.Text} → {display}"));
+        }
+        bool configuring=false;
+        void ConfigureValue() {
+            if(configuring)return;
+            configuring=true;
+            try {
+            bool bonus=field.SelectedIndex==5;effect.Enabled=tier.Enabled=bonus;
+            int key=effect.SelectedValue is int id?id:0;
+            decimal amount=value.Value,min=bonus?MasteryBonusUnits.Display(key,1):0,max=bonus?MasteryBonusUnits.Display(key,MasteryBonusUnits.Maximum(key)):int.MaxValue;
+            value.Minimum=0;value.Maximum=int.MaxValue;value.DecimalPlaces=bonus?MasteryBonusUnits.Decimals(key):0;
+            value.Increment=value.DecimalPlaces>0?0.01m:1;value.Value=Math.Clamp(amount,min,max);value.Minimum=min;value.Maximum=max;
+            units.Text=bonus?"New amount ("+MasteryBonusUnits.Unit(key)+")":"New value";
+            } finally {configuring=false;}
+            Preview();
+        }
+        value.ValueChanged+=(_,_)=> {if(!configuring && effect.SelectedValue is not null && (field.SelectedIndex!=5 || value.Value>=MasteryBonusUnits.Display((int)effect.SelectedValue,1)))Preview();};
+        field.SelectedIndexChanged+=(_,_)=>ConfigureValue(); effect.SelectedValueChanged+=(_,_)=>ConfigureValue();tier.SelectedValueChanged+=(_,_)=>Preview();
+        fields.Controls.AddRange([field,units,value,Label("Effect and earned tier (for bonus changes)"),effect,tier,help,preview,Button("Apply to draft",()=>dialog.DialogResult=DialogResult.OK)]); dialog.Controls.Add(fields);
+        dialog.Shown+=(_,_)=> {tier.SelectedValue=3;ConfigureValue();};
         if(dialog.ShowDialog(this)!=DialogResult.OK) return;
         foreach(var r in selected) switch(field.SelectedIndex) {
             case 0:r.CraftTimeMs=(int)value.Value;break; case 1:r.MasteryXp=(int)value.Value;break; case 2:r.MasteryRequired=(int)value.Value;break;
             case 3:r.RequiredSkill=(int)value.Value;break;case 4:r.NoSkillUp=(int)value.Value;break;
-            case 5:int key=(int)effect.SelectedValue!,rank=(int)tier.SelectedValue!; var b=r.Bonuses.FirstOrDefault(b=>b.Effect==key&&b.Rank==rank); if(b==null) r.Bonuses.Add(new() { Rank=rank,Effect=key,Amount=(int)value.Value }); else b.Amount=(int)value.Value;break;
+            case 5:int key=(int)effect.SelectedValue!,rank=(int)tier.SelectedValue!,stored=MasteryBonusUnits.Store(key,value.Value); var b=r.Bonuses.FirstOrDefault(b=>b.Effect==key&&b.Rank==rank); if(b==null) r.Bonuses.Add(new() { Rank=rank,Effect=key,Amount=stored }); else b.Amount=stored;break;
             case 6:r.BronzeRequired=(int)value.Value;break;case 7:r.SilverRequired=(int)value.Value;break;
         }
         Changed(); ShowRecipe();
