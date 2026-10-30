@@ -98,6 +98,7 @@ namespace LastChaos_ToolBoxNG
 			public string ServerPath = "";
 			public string ClientPath = "";
 			public string TextEditorPath = "";
+			public string ContentCheckout = "";
 
 			public string[]? NationSupported;
 
@@ -153,6 +154,7 @@ namespace LastChaos_ToolBoxNG
 		public Main()
 		{
 			InitializeComponent();
+			InitializeContentRecording();
 
 			Assembly? pAssembly = Assembly.GetAssembly(typeof(Main));
 
@@ -174,6 +176,12 @@ namespace LastChaos_ToolBoxNG
 
 		private void Main_FormClosing(object sender, FormClosingEventArgs e)
 		{
+			if (recordingContent)
+			{
+				e.Cancel = true;
+				contentRecordingStatus.Text = "Please wait for content recording to finish before closing.";
+				return;
+			}
 			lock (LogLock)
 			{
 				pStreamWriter.Flush();
@@ -673,6 +681,8 @@ namespace LastChaos_ToolBoxNG
 			pSettings.MaximizeOnStartUp = bool.Parse(pData["Settings"]["MaximizeOnStartUp"]);
 
 			pSettings.ClientPath = pData["Settings"]["ClientPath"];
+			pSettings.ContentCheckout = pData["ContentVersioning"]["GameCheckout"] ?? "";
+			RefreshContentCheckoutStatus();
 
 			string[] strNations = pData["Settings"]["NationSupported"].Split(',');
 
