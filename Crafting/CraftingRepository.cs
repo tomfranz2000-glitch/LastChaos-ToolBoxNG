@@ -48,7 +48,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
         Rows(db, tx, "SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", Tables.Select(t => "'" + t + "'")) + ")", r => found[r.GetString(0)] = r.GetString(1));
         if (Tables.Any(t => !found.TryGetValue(t, out string? e) || e != "InnoDB"))
-            throw new InvalidOperationException("Crafting and gathering mastery require all 23 InnoDB content tables. Apply the game's migrations through 0037; this editor never creates or changes schema.");
+            throw new InvalidOperationException($"Professions require all {Tables.Length} InnoDB content tables. Apply the game's migrations through 0039; this editor never creates or changes schema.");
         try {
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_crafting_mastery LIMIT 0",_=>{});
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_gathering_material LIMIT 0",_=>{});
@@ -112,7 +112,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
     public void Save(CraftingCatalog original, CraftingCatalog edited)
     {
         // Snapshot the UI draft before work leaves its thread. This API owns one
-        // connection/transaction and only the 23 authored content tables.
+        // connection/transaction and only the allowlisted authored content tables.
         using var db=new MySqlConnection(connectionString); db.Open();
         using var tx=db.BeginTransaction(IsolationLevel.RepeatableRead);
         try {
@@ -128,6 +128,7 @@ public sealed class CraftingRepository(string connectionString, string locale)
             edited.Professions.NormalizeStorage();
             edited.Items=current.Items;
             edited.Professions.Npcs=current.Professions.Npcs;edited.Professions.Zones=current.Professions.Zones;
+            edited.Professions.Infusions=current.Professions.Infusions;
             var errors=CraftingRules.Validate(edited).Where(i=>i.Error).ToList();
             if(errors.Count!=0) throw new InvalidOperationException(string.Join("\n",errors));
             Execute(db,tx,"UPDATE t_crafting_settings SET a_skill_cap=@p0 WHERE a_index=1",edited.SkillCap);

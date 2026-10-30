@@ -146,6 +146,7 @@ public static class ProfessionRules
         }
         if(activeSites>0)Note("Herbalism","SQL validation does not establish site accessibility. Check terrain/walkability and peace areas on the map; the server validates the deployed world again.");
         if(waters.Count>0)Note("Fishing","Boundaries mark existing water; they do not create water or prove shore reachability. Check the deployed world and use the map overlay.");
+        issues.AddRange(InfusionRules.Validate(c));
         return issues;
         void ValidateLoot(List<ProfessionRow> rows,string target,bool required) {
             if(rows.Count>32||(required&&rows.Count==0))Error(target,"Use 1–32 enabled weighted outcomes.");

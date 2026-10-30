@@ -16,7 +16,8 @@ public static class CraftingItemReferences
         ("t_herb_population", "a_visual_tool_index", "Herb visual tool"),
         ("t_herb_loot", "a_item_index", "Herb harvest outcome"),
         ("t_fishing_settings", "a_rod_item_index", "Required fishing rod"),
-        ("t_fishing_loot", "a_item_index", "Fishing catch")];
+        ("t_fishing_loot", "a_item_index", "Fishing catch"),
+        ("t_alchemy_effect", "a_item_index", "Permanent infusion potion")];
 
     public static bool HasSchema(MySqlConnection db)
     {

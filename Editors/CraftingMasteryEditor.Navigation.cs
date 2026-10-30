@@ -44,6 +44,11 @@ public sealed partial class CraftingMasteryEditor
         }
         Entry(craft,"Teaching items",()=>tabs.SelectedIndex=1);
         Entry(craft,"Crafting skill cap",()=>tabs.SelectedIndex=4);
+        var infusions=navigation.Nodes.Add("Infusions");infusions.Name="Infusions";
+        infusions.Tag=(Action)(()=>NavigateProfessionPage(5,InfusionSchema.Offers));
+        Entry(infusions,"Potion offers",()=>NavigateProfessionPage(5,InfusionSchema.Offers));
+        Entry(infusions,"Permanent effects",()=>NavigateProfessionPage(5,InfusionSchema.Effects));
+        Entry(infusions,"Alchemy station",()=>NavigateProfessionPage(5,InfusionSchema.Facility));
         var gather=navigation.Nodes.Add("Gathering");
         foreach(var pair in new[]{(1,"Mining"),(2,"Herbalism"),(3,"Fishing"),(4,"Wave Absorption")}) {
             int p=pair.Item1;Entry(gather,pair.Item2,()=>NavigateProfession(p));
@@ -81,7 +86,7 @@ public sealed partial class CraftingMasteryEditor
         bool ownership=Owners(before)!=Owners(after);
         bool herbs=new[]{"t_herb_population","t_herb_spawn_point","t_herb_loot"}.Any(ChangedTable);
         applyNotes.Text="APPLYING SAVED CONTENT\r\n\r\n"+
-            "Crafting recipes/settings: close and reopen /craft.\r\nResource mastery, Mining/Wave rules and Fishing: close and reopen /gather.\r\nArtisan Rank definitions: reopen /artisan.\r\n\r\n"+
+            "Crafting recipes/settings: close and reopen /craft.\r\nResource mastery, Mining/Wave rules and Fishing: close and reopen /gather.\r\nArtisan Rank definitions: reopen /artisan.\r\nInfusions: reopen the Alchemy station. Station placement/model changes may require re-entering the private hall.\r\n\r\n"+
             (ownership?"THIS DRAFT changes enabled herb population ownership. A GameServer restart is required after Save.\r\n":
              herbs?"THIS DRAFT changes existing herb rules/sites/loot. After Save, an administrator must use /herbpop reload.\r\n":
              "Herb rules/sites/loot: an administrator uses /herbpop reload. Adding/removing an enabled population or changing its zone/NPC requires GameServer restart.\r\n")+
@@ -93,6 +98,7 @@ public sealed partial class CraftingMasteryEditor
     private void NavigateInitialItem(int item)
     {
         if(catalog.Items.TryGetValue(item,out var value)&&value.Manual) { SelectNavigation("Teaching items");bookItem.Value=item;tabs.SelectedIndex=1;pageHeading.Text="Teaching items"; }
+        else if(catalog.Professions.Rows(InfusionSchema.Effects).FirstOrDefault(r=>r.Int("a_item_index")==item) is { } infusion) {SelectNavigation("Permanent effects");NavigateInfusionEffect(infusion.Int("a_index"));pageHeading.Text="Permanent infusion effects";}
         else if(catalog.Gathering.Any(r=>r.ItemId==item)) OpenGatheringMastery(item);
         else if(catalog.Professions.Rows("t_gathering_tool").FirstOrDefault(r=>r.Int("a_item_index")==item) is { } tool) { NavigateProfessionPage(tool.Int("a_profession"),"t_gathering_tool");pageHeading.Text="Gathering tools"; }
         else if(catalog.Professions.Rows("t_fishing_settings").Any(r=>r.Int("a_rod_item_index")==item)) {NavigateProfessionPage(3,"t_fishing_settings");pageHeading.Text="Fishing rod";}

@@ -3,5 +3,6 @@
 <ItemGroup><PackageReference Include="MySqlConnector" Version="2.5.0" />
 <Compile Include="../../Crafting/CraftingModel.cs" Link="Product/CraftingModel.cs"/><Compile Include="../../Crafting/CraftingRepository.cs" Link="Product/CraftingRepository.cs"/>
 <Compile Include="../../Crafting/MasteryBonusUnits.cs" Link="Product/MasteryBonusUnits.cs"/>
+<Compile Include="../../Professions/InfusionSchema.cs" Link="Product/InfusionSchema.cs"/><Compile Include="../../Professions/InfusionRules.cs" Link="Product/InfusionRules.cs"/>
 <Compile Include="../../Professions/ProfessionContent.cs" Link="Product/ProfessionContent.cs"/><Compile Include="../../Professions/ProfessionSchema.cs" Link="Product/ProfessionSchema.cs"/><Compile Include="../../Professions/ProfessionRules.cs" Link="Product/ProfessionRules.cs"/><Compile Include="../../Professions/ProfessionStorage.cs" Link="Product/ProfessionStorage.cs"/><Compile Include="../../Professions/ProfessionPreviews.cs" Link="Product/ProfessionPreviews.cs"/>
 </ItemGroup></Project>

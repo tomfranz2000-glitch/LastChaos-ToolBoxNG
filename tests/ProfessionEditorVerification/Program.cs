@@ -5,6 +5,7 @@ using System.Text.Json;
 using LastChaos_ToolBoxNG;
 using LastChaos_ToolBoxNG.Crafting;
 using LastChaos_ToolBoxNG.Professions;
+using LastChaos_ToolBoxNG.ContentRecording;
 
 static class Program
 {
@@ -29,6 +30,7 @@ static class Program
         public List<Dictionary<string, string>> Items { get; set; } = [];
         public List<Dictionary<string, string>> Npcs { get; set; } = [];
         public List<Dictionary<string, string>> Zones { get; set; } = [];
+        public Dictionary<string,List<Dictionary<string,string>>> InfusionMetadata { get; set; } = [];
     }
     static int N(Dictionary<string, string> row, string field) => int.Parse(row[field], System.Globalization.CultureInfo.InvariantCulture);
     static CraftingCatalog Load(string path)
@@ -41,6 +43,7 @@ static class Program
         { int id = N(r, "a_index"); c.Items[id] = new(id, r["a_name_usa"], N(r, "a_enable") == 1, N(r, "a_type_idx"), N(r, "a_subtype_idx"), long.Parse(r["a_flag"]), N(r, "a_weight"), N(r, "a_texture_id"), N(r, "a_texture_row"), N(r, "a_texture_col"), false, N(r, "a_wearing")); }
         foreach (var r in raw.Npcs) { int id = N(r, "a_index"); c.Professions.Npcs[id] = new(id, r["a_name"], long.Parse(r["a_flag"]), N(r, "a_enable") == 1); }
         foreach (var r in raw.Zones) c.Professions.Zones[N(r, "a_zone_index")] = r["a_name"];
+        c.Professions.Infusions=InfusionMetadata.FromRows(raw.InfusionMetadata,raw.InfusionMetadata["t_skill"].ToDictionary(r=>N(r,"a_index"),r=>r["a_name_usa"]));
         c.SkillCap = N(raw.Tables["t_crafting_settings"].Single(), "a_skill_cap");
         var mastery = raw.Tables["t_crafting_mastery"].ToDictionary(r => N(r, "a_recipe_index"));
         foreach (var r in raw.Tables["t_crafting_recipe"])
@@ -68,6 +71,35 @@ static class Program
         File.WriteAllText(Path.Combine(output, "result.json"), "{\"passed\":false,\"stage\":\"running\",\"liveDatabaseChanged\":false}");
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         var c = Load(args[1]); var initial = c.Fingerprint();
+        Check(!InfusionRules.Validate(c).Any(i=>i.Error),"authored infusion catalogue matches supported original potion effects");
+        Check(c.Professions.Rows(InfusionSchema.Effects).Count==4&&c.Professions.Rows(InfusionSchema.Offers).All(r=>r.Int("a_required_count")==250),"four initial offers each consume 250 original potions");
+        Check(InfusionSchema.Tables.All(t=>ContentRecordingPolicy.AllowlistedTables.Any(a=>a.Key=="ep4_data/"+t.Name))&&!ContentRecordingPolicy.AllowlistedTables.Any(t=>t.Table=="t_alchemy_infusion_unlock"),"content recording includes authored infusion tables and excludes player unlocks");
+        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==121,"recording policy exactly matches all 121 authored seed tables");
+        var copied=CraftingCatalog.Copy(c);Check(copied.Fingerprint()==initial&&!JsonSerializer.Serialize(copied).Contains("MagicIds"),"all authored infusion rows round-trip exactly without read-only metadata or progression");
+        CraftingCatalog Draft() {var draft=CraftingCatalog.Copy(c);draft.Items=c.Items;draft.Professions.Infusions=c.Professions.Infusions;return draft;}
+        void Deny(Action action,string label){try{action();}catch(InvalidOperationException){Check(true,label);return;}throw new Exception(label);}
+        foreach(string column in new[]{"a_item_index","a_skill_index","a_skill_level"}) {
+            var draft=Draft();draft.Professions.Rows(InfusionSchema.Effects)[0].Set(column,999999);
+            Deny(()=>ProfessionStorage.ValidatePublished(c.Professions,draft.Professions),"published effect identity cannot change: "+column);
+        }
+        foreach(string table in new[]{InfusionSchema.Effects,InfusionSchema.Offers,InfusionSchema.Facility}) {
+            var draft=Draft();draft.Professions.Rows(table).RemoveAt(0);Deny(()=>ProfessionStorage.ValidatePublished(c.Professions,draft.Professions),"published rows cannot disappear: "+table);
+        }
+        var offerDraft=Draft();offerDraft.Professions.Rows(InfusionSchema.Offers)[0].Set("a_required_count",300);offerDraft.Professions.Rows(InfusionSchema.Offers)[0].Set("a_enabled",0);
+        ProfessionStorage.ValidatePublished(c.Professions,offerDraft.Professions);Check(!InfusionRules.Validate(offerDraft).Any(i=>i.Error),"offer cost and availability remain editable without changing acquired effect identity");
+        foreach(string path in new[]{@"C:\outside.smc",@"Data\..\outside.smc",@"Data\World\bad.txt",@"Data\World\äm.smc"}) {
+            var draft=Draft();draft.Professions.Rows(InfusionSchema.Facility)[0].Set("a_model",path);Check(InfusionRules.Validate(draft).Any(i=>i.Error),"unsafe station model path rejected: "+path);
+        }
+        var wrongSkill=Draft();wrongSkill.Professions.Rows(InfusionSchema.Effects)[0].Set("a_skill_index",504);Check(InfusionRules.Validate(wrongSkill).Any(i=>i.Error),"mismatched original potion skill is rejected");
+        foreach(int flag in new[]{4,64,128,256,512,1024,2048,4096,131072}) {
+            var raw=JsonSerializer.Deserialize<Snapshot>(File.ReadAllText(args[1]))!.InfusionMetadata;var skill=raw["t_skill"].Single(r=>N(r,"a_index")==505);skill["a_flag"]=(N(skill,"a_flag")|flag).ToString();
+            Check(!InfusionMetadata.FromRows(raw).Potions[2846].Supported,"unsupported skill lifecycle flag rejected: "+flag);
+        }
+        var highLevelRaw=JsonSerializer.Deserialize<Snapshot>(File.ReadAllText(args[1]))!.InfusionMetadata;
+        highLevelRaw["t_item"].Single(r=>N(r,"a_index")==2846)["a_num_1"]="128";
+        highLevelRaw["t_skill"].Single(r=>N(r,"a_index")==505)["a_maxLevel"]="255";
+        var highLevel=new Dictionary<string,string>(highLevelRaw["t_skilllevel"].Single(r=>N(r,"a_index")==505&&N(r,"a_level")==1));highLevel["a_level"]="128";highLevelRaw["t_skilllevel"].Add(highLevel);
+        Check(!InfusionMetadata.FromRows(highLevelRaw).Potions[2846].Supported,"legacy signed skill-level boundary rejects 128 even when the prototype permits it");
         using var host = new LastChaos_ToolBoxNG.Main(); host.pSettings.WorkLocale = "usa";
         host.pSettings.ClientPath = Environment.GetEnvironmentVariable("LC_CLIENT_RUNTIME_ROOT") ?? Path.Combine(game, ".local/runtime/ClientEp4-VS2022-x64-Test");
         host.pSettings.DBHost = "invalid.offline.fixture"; host.pSettings.DBData = "not_a_database";
@@ -81,10 +113,10 @@ static class Program
         editor.Show(); Set(editor, "busy", false);
         foreach (string method in new[] { "FilterRecipes", "RefreshRanks", "RefreshTeachingItems", "RefreshGathering", "RefreshProfessionPages", "RefreshHome" }) Call(editor, method);
         var tabs = Field<TabControl>(editor, "tabs"); var nav = Field<TreeView>(editor, "navigation");
-        Check(tabs.TabPages.Cast<TabPage>().Count(p => p.Name.StartsWith("Profession")) == 4, "all four gathering profession pages exist");
+        Check(tabs.TabPages.Cast<TabPage>().Count(p => p.Name.StartsWith("Profession")) == 5, "all four gathering pages and Infusions exist");
         void Navigate(int profession, string table)
         {
-            nav.SelectedNode = nav.Nodes.Find(profession switch { 1 => "Mining", 2 => "Herbalism", 3 => "Fishing", _ => "Wave Absorption" }, true).Single();
+            nav.SelectedNode = nav.Nodes.Find(profession switch { 1 => "Mining", 2 => "Herbalism", 3 => "Fishing", 5 => "Infusions", _ => "Wave Absorption" }, true).Single();
             Call(editor, "NavigateProfessionPage", profession, table); Application.DoEvents();
         }
         Control Detail(int profession, string table) => editor.Controls.Find($"ProfessionDetail_{profession}_{table}", true).Single();
@@ -93,7 +125,7 @@ static class Program
         foreach (var size in new[] { new Size(1420, 900), new Size(1100, 720) })
         {
             string suffix = $"-{size.Width}x{size.Height}"; nav.SelectedNode = nav.Nodes.Find("Overview", true).Single(); Capture("overview" + suffix, size);
-            foreach (var sample in new[] { (1, "t_gathering_node", "mining"), (2, "t_herb_population", "herbalism"), (3, "t_fishing_water", "fishing"), (4, "t_gathering_node", "wave"), (2, "t_gathering_settings", "herbalism-rules") })
+            foreach (var sample in new[] { (1, "t_gathering_node", "mining"), (2, "t_herb_population", "herbalism"), (3, "t_fishing_water", "fishing"), (4, "t_gathering_node", "wave"), (2, "t_gathering_settings", "herbalism-rules"), (5,InfusionSchema.Offers,"infusion-offers"),(5,InfusionSchema.Effects,"infusion-effects"),(5,InfusionSchema.Facility,"infusion-station") })
             {
                 Navigate(sample.Item1, sample.Item2); Capture(sample.Item3 + suffix, size);
                 var panel = (Panel)Detail(sample.Item1, sample.Item2);
@@ -169,6 +201,23 @@ static class Program
         Check(Field<bool>(editor, "dirty") && c.Professions.Rows("t_gathering_node").First(r => r.Int("a_profession") == 1).Decimal("a_timeout_ms") == (old + 1) * 1000, "normal field editing updates only the draft in stored units");
         duration.Value = old;
         Check(c.Fingerprint() == initial, "restoring the displayed value restores the exact catalogue snapshot");
+        Navigate(5,InfusionSchema.Effects);var effectsPanel=Detail(5,InfusionSchema.Effects);
+        Check(new[]{"a_index","a_item_index","a_skill_index","a_skill_level"}.All(name=>!effectsPanel.Controls.Find(name,true).Single().Enabled),"published potion, skill, level and effect ID are locked in the actual editor");
+        Navigate(5,InfusionSchema.Offers);var offersPanel=Detail(5,InfusionSchema.Offers);
+        var cost=(NumericUpDown)offersPanel.Controls.Find("a_required_count",true).Single();Check(cost.Value==250,"offer editor shows a readable 250-potion cost");cost.Value=251;
+        Check(c.Professions.Rows(InfusionSchema.Offers)[0].Int("a_required_count")==251,"actual offer control edits only the draft potion quantity");cost.Value=250;
+        var enabled=(CheckBox)offersPanel.Controls.Find("a_enabled",true).Single();enabled.Checked=false;Check(!c.Professions.Rows(InfusionSchema.Offers)[0].Enabled,"retiring an offer updates its actual enabled field");enabled.Checked=true;
+        Navigate(5,InfusionSchema.Facility);var stationPanel=Detail(5,InfusionSchema.Facility);
+        var radius=(NumericUpDown)stationPanel.Controls.Find("a_use_radius",true).Single();Check(radius.Value==4&&radius.DecimalPlaces==2,"station range displays metres rather than stored hundredths");radius.Value=4.25m;
+        Check(c.Professions.Rows(InfusionSchema.Facility)[0].Int("a_use_radius")==425,"station metres convert exactly to native integer hundredths");radius.Value=4;
+        Check(c.Fingerprint()==initial,"all actual infusion edits restore exact authored content");
+        Call(editor,"NavigateInfusionEffect",2);var effectRows=(DataGridView)editor.Controls.Find("ProfessionRows_5_t_alchemy_effect",true).Single();
+        Check(effectRows.CurrentRow!.Cells["Identity"].Value?.ToString()=="2","opening an offer effect selects its associated permanent definition");
+        var newEffect=CraftingCatalog.Copy(c.Professions.Rows(InfusionSchema.Effects)[0]);newEffect.Set("a_index",100);c.Professions.Rows(InfusionSchema.Effects).Add(newEffect);Call(editor,"NavigateInfusionEffect",100);
+        effectsPanel=Detail(5,InfusionSchema.Effects);var newPotion=(NumericUpDown)effectsPanel.Controls.Find("a_item_index",true).Single();
+        Check(newPotion.Enabled&&!effectsPanel.Controls.Find("a_skill_index",true).Single().Enabled&&!effectsPanel.Controls.Find("a_skill_level",true).Single().Enabled,"new effects allow an item selection while keeping derived skill fields read-only");
+        newPotion.Value=2845;Check(newEffect.Int("a_skill_index")==504&&newEffect.Int("a_skill_level")==1,"changing the actual original-potion control derives its exact skill and level");
+        c.Professions.Rows(InfusionSchema.Effects).Remove(newEffect);Call(editor,"RefreshProfessionPages");Check(c.Fingerprint()==initial,"discarding a new effect restores all existing content exactly");
         Set(editor, "dirty", false); editor.Close();
         File.WriteAllText(Path.Combine(output, "result.json"), JsonSerializer.Serialize(new { passed = true, checks, liveDatabaseChanged = false, gameClientLaunched = false }));
         Console.WriteLine(checks + " profession UI checks passed"); return 0;
