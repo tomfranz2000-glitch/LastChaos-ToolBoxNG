@@ -16,3 +16,10 @@ dotnet run --project tests/ProfessionEditorVerification -c Release -- <game-chec
 PNG files and `result.json` are written only to the supplied output directory.
 These checks establish editor behavior/layout, not in-game gathering behavior or
 world accessibility. Database transaction and engine-rule checks are separate.
+
+The Infusions checks use the actual authored potion, skill and magic seed rows.
+They cover the five station pages, derived and immutable effect identities,
+unsupported lifecycle flags, costs/availability, safe model paths, exact native
+hundredth units, JSON roundtrip and the content-recording/player-data boundary.
+Station access checks cover named Artisan Rank choices, None/unrestricted access,
+retired durable IDs, missing references and preserving IDs independently of order.

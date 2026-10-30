@@ -62,6 +62,19 @@ The Quest Editor in this upstream version is an unfinished rare-option editor
 copy whose actions target the wrong table. Its loader and write actions are
 disabled with a visible explanation. Implementing quest editing is separate work.
 
+## Alchemy station access
+
+In **Professions Editor → Infusions → Station**, **Required Artisan Rank** names
+existing ranks and stores their permanent IDs. **None — unrestricted** stores 0;
+new station definitions default to ID 3. Retired ranks remain selectable because
+previously earned milestones remain valid. Display order does not change the saved
+reference, and a missing reference must be corrected before saving. This field
+requires game migration `0040-alchemy-artisan-rank-unlock.sql`.
+
+The shared content schema includes the requirement in normal transactional saves,
+draft JSON and content exports. Re-enter the private hall to refresh its station
+catalogue after saving an access-rule change. Character achievements are not edited.
+
 ## Versioning editor changes
 
 ### One-click recording
@@ -76,7 +89,7 @@ captures saved SQL edits made outside the Toolbox. Unsaved editor drafts are not
 included. The button:
 
 1. Verifies the selected checkout, named branch, Git identity and database identity.
-2. Takes one consistent copy of the 118 reviewed authored tables. Player,
+2. Takes one consistent copy of the 123 reviewed authored tables. Player,
    account, inventory, progression and log tables are excluded. Runtime columns
    in the five mixed tables are normalized only in temporary copies.
 3. Runs the game's deterministic seed exporter against that copy. Only tables

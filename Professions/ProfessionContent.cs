@@ -10,7 +10,7 @@ public sealed class ProfessionRow
     public int Int(string column) => decimal.TryParse(Get(column),NumberStyles.Float,CultureInfo.InvariantCulture,out var n)&&n>=int.MinValue&&n<=int.MaxValue&&n==decimal.Truncate(n)?(int)n:0;
     public decimal Decimal(string column) => decimal.TryParse(Get(column),NumberStyles.Float,CultureInfo.InvariantCulture,out var n)?n:0;
     public void Set(string column,object? value) => Values[column]=Convert.ToString(value,CultureInfo.InvariantCulture)??"";
-    public bool Enabled => !Values.ContainsKey("a_enable") || Int("a_enable")==1;
+    public bool Enabled => Values.ContainsKey("a_enabled") ? Int("a_enabled")==1 : !Values.ContainsKey("a_enable") || Int("a_enable")==1;
     public string Key(ProfessionTable table) => string.Join("/",table.Keys.Select(c=>Decimal(c).ToString("G29",CultureInfo.InvariantCulture)));
     public override string ToString() => Get("a_name") is {Length:>0} n?n:string.Join(" / ",Values.Where(p=>p.Key is "a_index" or "a_item_index" or "a_npc_index" or "a_population_index" or "a_water_index" or "a_slot" or "a_polygon_index" or "a_vertex_index").Select(p=>p.Value));
 }
@@ -20,6 +20,7 @@ public sealed class ProfessionContent
     public Dictionary<string,List<ProfessionRow>> Tables { get; set; } = new(StringComparer.Ordinal);
     [JsonIgnore] public Dictionary<int,ProfessionNpc> Npcs { get; set; } = [];
     [JsonIgnore] public Dictionary<int,string> Zones { get; set; } = [];
+    [JsonIgnore] public InfusionMetadata Infusions { get; set; } = new();
     public List<ProfessionRow> Rows(string table)
     {
         if(!ProfessionSchema.Tables.Any(t=>t.Name==table))throw new ArgumentException("Unknown profession content table.",nameof(table));

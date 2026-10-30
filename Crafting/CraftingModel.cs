@@ -9,7 +9,14 @@ namespace LastChaos_ToolBoxNG.Crafting;
 public enum Profession { Smithing, Alchemy, Cooking }
 public sealed class Ingredient { public int ItemId { get; set; } public int Quantity { get; set; } = 1; }
 public sealed class TeachingItem { public int ItemId { get; set; } }
-public sealed class Bonus { public int Effect { get; set; } = 4; public int Amount { get; set; } = 1; public int Rank { get; set; } = 3; }
+public sealed class Bonus
+{
+    public int Effect { get; set; } = 4;
+    public int Amount { get; set; } = 1;
+    public int Rank { get; set; } = 3;
+    [JsonIgnore] public decimal DisplayAmount { get => MasteryBonusUnits.Display(Effect, Amount); set => Amount = MasteryBonusUnits.Store(Effect, value); }
+    [JsonIgnore] public string DisplayUnit => MasteryBonusUnits.Unit(Effect);
+}
 public sealed class BonusOutput
 {
     public int ItemId { get; set; }
@@ -124,12 +131,18 @@ public static class CraftingRules
         "Magic Attack", "Magic Accuracy", "Magic Defense", "Magic Evasion", "All Attack", "All Accuracy",
         "All Defense", "All Evasion"
     }.Select((s, i) => (s, i)).ToDictionary(x => x.i, x => x.s);
-    static CraftingRules() { Effects[102] = "HP Regeneration"; Effects[103] = "MP Regeneration"; }
+    static CraftingRules() {
+        Effects[102] = "HP Regeneration"; Effects[103] = "MP Regeneration";
+        Effects[MasteryBonusUnits.MovementSpeed] = "Movement Speed";
+        Effects[MasteryBonusUnits.AttackIntervalReduction] = "Attack Interval Reduction";
+        Effects[MasteryBonusUnits.PveDoubleDamageChance] = "PvE Double Damage Chance";
+    }
     public static IEnumerable<int> Channels(int effect) => effect switch {
         >= 0 and <= 5 => [effect], 6 => [6, 7], 7 => [6], 8 => [7], 9 => [9], 10 => [10],
         11 => [12, 13], 12 => [12], 13 => [13], 14 => [15], 15 => [16], 16 => [8],
         17 => [11], 18 => [14], 19 => [17], 20 => [6, 7, 8], 21 => [9, 10, 11],
-        22 => [12, 13, 14], 23 => [15, 16, 17], 102 => [18], 103 => [19], _ => []
+        22 => [12, 13, 14], 23 => [15, 16, 17], 102 => [18], 103 => [19],
+        MasteryBonusUnits.MovementSpeed => [20], MasteryBonusUnits.AttackIntervalReduction => [21], MasteryBonusUnits.PveDoubleDamageChance => [22], _ => []
     };
     public static int Chance(Recipe r, int skill, int skillCap) => skill < r.RequiredSkill || skill >= skillCap || skill >= r.NoSkillUp ? 0 :
         skill >= r.RequiredSkill + (2L * (r.NoSkillUp - r.RequiredSkill) + 2) / 3 ? 20 :
@@ -155,18 +168,19 @@ public static class CraftingRules
     public static string TierName(int rank) => rank switch { 1=>"Bronze",2=>"Silver",3=>"Gold",_=>"Invalid" };
     public static bool ValidThresholds(int bronze,int silver,int gold) => bronze>0 && (long)silver-bronze>bronze && (long)gold-silver>(long)silver-bronze;
     public static string Rewards(IEnumerable<Bonus> bonuses) => string.Join(", ", bonuses.GroupBy(b => b.Effect)
-        .Select(g => $"+{g.Sum(b => (long)b.Amount):N0} {Effects.GetValueOrDefault(g.Key, $"Unknown effect {g.Key}")}"));
+        .Select(g => MasteryBonusUnits.Format(g.Key, g.Sum(b => (long)b.Amount))));
     public static List<CraftingIssue> Validate(CraftingCatalog c)
     {
         List<CraftingIssue> issues = [];
         void Error(string t, string m) => issues.Add(new(true, t, m));
         void Note(string t, string m) => issues.Add(new(false, t, m));
-        var totals = new long[20];
+        var totals = new long[MasteryBonusUnits.ChannelCount];
         void Bonuses(string t, List<Bonus> bs,bool tiered=false) {
             if (tiered ? bs.Any(b=>b.Rank is <1 or >3) || bs.GroupBy(b=>b.Rank).Any(g=>g.Count()>8 || g.Select(b=>b.Effect).Distinct().Count()!=g.Count())
                 : bs.Count > 8 || bs.Select(b => b.Effect).Distinct().Count() != bs.Count) Error(t, "Use at most eight distinct bonus effects per rank.");
             foreach (var b in bs) {
-                if (!Effects.ContainsKey(b.Effect) || b.Amount is < 1 or > 32767) Error(t, "Bonuses need a supported flat effect and amount 1–32767.");
+                if (!Effects.ContainsKey(b.Effect) || b.Amount < 1 || b.Amount > MasteryBonusUnits.Maximum(b.Effect))
+                    Error(t, "Bonuses need a supported effect and positive amount within its limit: " + MasteryBonusUnits.Unit(b.Effect) + "; maximum " + MasteryBonusUnits.Display(b.Effect, MasteryBonusUnits.Maximum(b.Effect)).ToString("0.##") + ".");
                 foreach (int channel in Channels(b.Effect)) totals[channel] += b.Amount;
             }
         }
@@ -216,7 +230,10 @@ public static class CraftingRules
             if (r.Enabled && r.RequiredMastered > available) Note(t, $"Needs {r.RequiredMastered} mastery points; {available} are currently available across crafting and gathering. Historical ranks still count.");
             Bonuses(t, r.Bonuses);
         }
-        if (totals.Any(v => v > 32767)) Error("Bonuses", "Combined crafting, gathering and Artisan Rank bonuses exceed 32767 in a stat channel, including overlapping All/Physical effects and retired definitions.");
+        if (totals.Take(20).Any(v => v > 32767)) Error("Bonuses", "Combined crafting, gathering and Artisan Rank bonuses exceed 32767 in a stat channel, including overlapping All/Physical effects and retired definitions.");
+        for (int channel=20;channel<totals.Length;channel++)
+            if (totals[channel] > MasteryBonusUnits.ChannelMaximum(channel))
+                Error("Bonuses", "Combined crafting, gathering and Artisan Rank bonuses exceed the limit: " + MasteryBonusUnits.Format(channel + 980, MasteryBonusUnits.ChannelMaximum(channel)) + ". Retired definitions and all earned tiers are included.");
         issues.AddRange(ProfessionRules.Validate(c));
         return issues;
     }

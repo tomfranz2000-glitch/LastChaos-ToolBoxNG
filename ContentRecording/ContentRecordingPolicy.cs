@@ -21,6 +21,11 @@ public static class ContentRecordingPolicy
     private const string DataTables = """
 t_achievement
 t_achievement_stage
+t_alchemy_effect
+t_alchemy_consumable
+t_alchemy_ingredient
+t_alchemy_facility
+t_alchemy_offer
 t_action
 t_affinity
 t_affinity_npc

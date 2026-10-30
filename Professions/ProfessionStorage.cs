@@ -15,7 +15,7 @@ public static class ProfessionStorage
                 using var reader=command.ExecuteReader();
             }
         } catch(MySqlException e) when(e.Number is 1054 or 1146) {
-            throw new InvalidOperationException("Profession content schema is incomplete. Apply the game's migrations through 0037; this editor never creates or changes database schema.",e);
+            throw new InvalidOperationException("Profession content schema is incomplete. Apply the game's migrations through 0042; this editor never creates or changes database schema.",e);
         }
     }
     public static ProfessionContent Read(MySqlConnection db,MySqlTransaction tx,bool locked,string locale="usa")
@@ -38,6 +38,7 @@ public static class ProfessionStorage
         using(var command=new MySqlCommand("SELECT a_zone_index,COALESCE(a_name,'') FROM t_zonedata ORDER BY a_zone_index"+(locked?" LOCK IN SHARE MODE":""),db,tx))
         using(var reader=command.ExecuteReader())while(reader.Read())content.Zones[reader.GetInt32(0)]=reader.GetString(1);
         content.NormalizeStorage();
+        content.Infusions=InfusionMetadata.Read(db,tx,locked,locale);
         return content;
     }
     private static void Execute(MySqlConnection db,MySqlTransaction tx,string sql,params object[] values)
@@ -49,7 +50,7 @@ public static class ProfessionStorage
     public static void Save(MySqlConnection db,MySqlTransaction tx,ProfessionContent original,ProfessionContent edited)
     {
         if(original.Canonical()==edited.Canonical())return;
-        string[] children=["t_gathering_node_loot","t_herb_spawn_point","t_herb_loot","t_fishing_water_vertex","t_fishing_loot"];
+        string[] children=["t_gathering_node_loot","t_herb_spawn_point","t_herb_loot","t_fishing_water_vertex","t_fishing_loot",InfusionSchema.Ingredients];
         foreach(var table in children)Execute(db,tx,"DELETE FROM `"+table+"`");
         // Temporary unreferenced NPC numbers permit unique-binding swaps inside
         // this transaction. They are never published to the game or seed export.
@@ -71,9 +72,19 @@ public static class ProfessionStorage
     }
     public static void ValidatePublished(ProfessionContent original,ProfessionContent edited)
     {
-        foreach(var name in new[]{"t_gathering_settings","t_gathering_profile","t_gathering_node","t_gathering_tool","t_herb_population","t_fishing_settings","t_fishing_water"}) {
+        foreach(var name in new[]{"t_gathering_settings","t_gathering_profile","t_gathering_node","t_gathering_tool","t_herb_population","t_fishing_settings","t_fishing_water",InfusionSchema.Effects,InfusionSchema.Offers,InfusionSchema.Facility,InfusionSchema.Consumables}) {
             var table=ProfessionSchema.Find(name);var keys=edited.Rows(name).Select(r=>r.Key(table)).ToHashSet(StringComparer.Ordinal);
             if(original.Rows(name).Any(r=>!keys.Contains(r.Key(table))))throw new InvalidOperationException("Published "+table.Title+" IDs cannot be removed or renumbered. Disable source/tool definitions instead; retain imported profiles.");
+        }
+        foreach(var mapping in original.Rows(InfusionSchema.Consumables)) {
+            var current=edited.Rows(InfusionSchema.Consumables).First(r=>r.Int("a_item_index")==mapping.Int("a_item_index"));
+            if(current.Int("a_effect_index")!=mapping.Int("a_effect_index"))
+                throw new InvalidOperationException("A published permanent potion's effect mapping cannot change. Create a new item for a different effect; existing potions and brewing jobs retain their identity.");
+        }
+        foreach(var effect in original.Rows(InfusionSchema.Effects)) {
+            var current=edited.Rows(InfusionSchema.Effects).First(r=>r.Int("a_index")==effect.Int("a_index"));
+            if(new[]{"a_item_index","a_skill_index","a_skill_level"}.Any(column=>effect.Get(column)!=current.Get(column)))
+                throw new InvalidOperationException("A published permanent infusion effect's potion, skill and level cannot change. Add a new effect and retire the old offer; acquired character effects must retain their identity.");
         }
     }
 }

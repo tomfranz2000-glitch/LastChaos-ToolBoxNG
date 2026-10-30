@@ -2,7 +2,7 @@
 
 Open **Professions Editor** from the toolbox editor list. **Crafting Editor — Legacy** continues to edit `t_factory_item`; it does not control the new system.
 
-The new editor uses the toolbox's configured content database and item locale. It requires the game's migrations through **0037**. It does not apply migrations, create tables, or change player progression.
+The new editor uses the toolbox's configured content database and item locale. It requires the game's migrations through **0042**. It does not apply migrations, create tables, or change player progression.
 
 ## Deploying toolbox updates
 
@@ -37,7 +37,7 @@ editors and normal deployment process.
 2. Add ingredients by ID or the existing item picker. Item names, icons, Open item and Where used are available for each row.
 3. In **Learning**, choose automatic availability or **Requires a teaching item**, then assign one or more enabled manual items. The **Teaching Items** tab can assign a single book to several recipes at once. Supported books are non-timed Once items with subtype 1, 2 or 4.
 4. Set minimum skill and the skill at which gains stop. The editor previews the game's derived 100% / 60% / 20% / 0% bands. Intermediate thresholds are not stored.
-5. Set mastery XP per craft and cumulative Bronze, Silver and Gold XP targets. Each successive tier must cost more additional XP than its predecessor. Assign up to eight permanent flat stat bonuses per tier; later tiers add their rewards to earlier ones. Zero XP per craft pauses progression without removing the required targets or earned rewards.
+5. Set mastery XP per craft and cumulative Bronze, Silver and Gold XP targets. Each successive tier must cost more additional XP than its predecessor. Assign up to eight permanent bonuses per tier; later tiers add their rewards to earlier ones. Zero XP per craft pauses progression without removing the required targets or earned rewards.
 6. Optional **Bonus outputs** preserve processing's random extras. This is one exclusive roll per craft, with up to eight outcomes and two decimal places of percentage precision. The unused percentage gives no extra item.
 7. **Save all changes** validates and commits the entire draft in one transaction.
 
@@ -136,12 +136,62 @@ and no-gain levels stay independent. Raise those endpoints for new training cont
 when needed; raising the global cap alone does not change a recipe's chances.
 **Validate / Overview** warns about recipes requiring a level above the current cap.
 
-The current editor requires migrations through 0037 and matching client/GameServer
+The current editor requires migrations through 0042 and matching client/GameServer
 builds. Subsequent cap edits are purely database driven.
+
+## Alchemy infusions
+
+The **Infusions** section configures the private-hall Alchemy station. It is
+separate from Alchemy recipe mastery: an infusion grants the original potion's
+full existing skill permanently, rather than copying a percentage of its stats.
+The initial four recipes consume **250** Power Potions, Super Haste Potions,
+Berserker Potions, or Platinum Adrenaline respectively, plus two secondary
+materials. They produce one tradable permanent potion after **5, 6, 8 or 10
+hours**. Brewing advances while offline; consuming the finished potion grants
+the recipient the permanent effect. Already knowing that effect does not block
+production.
+
+- **Brewing recipes:** choose the permanent effect and named finished potion,
+  set original-potion cost, output quantity, hours/minutes/seconds and display
+  order, and enable or retire the recipe. Accepted jobs keep their original costs,
+  output and completion time when you edit a recipe. Existing IDs are retained.
+- **Extra ingredients:** select a recipe and add up to eight different ordinary
+  stackable materials, with quantities. These are additional to the source-potion
+  cost. Currency and permanent potions cannot become ingredients.
+- **Permanent potions:** map a new finished item to its exact permanent effect.
+  Create its inventory definition in Item Editor first: type 6/subtype 5, no ordinary timed skill (`a_num_0=0`, `a_num_1=0`),
+  max use -1, Count/Exchange/Trade flags (Drop optional),
+  and enough stack capacity for one output batch. Once saved, item and effect
+  IDs cannot be retargeted or removed: older items and jobs retain their meaning.
+  Up to 64 mappings are supported. Recipe outputs may change to another valid
+  mapping without invalidating an existing job.
+- **Permanent effects:** select the original item for a new definition. The skill
+  and level are derived from that item and shown read-only. Once saved, the
+  effect ID, item, skill and level are fixed; add another definition for a
+  different effect. Retiring an offer never revokes an acquired effect.
+- **Station:** edit its name, native model path, coordinates, heading and use
+  range. Metres and degrees are displayed; storage remains integer hundredths.
+  The current station belongs to private hall template 1, zone 8. The server
+  checks map bounds; the editor cannot prove physical accessibility or that a
+  newly named model is installed.
+
+At most 16 effect definitions and 16 offers are supported, including retired
+offers. Supported sources are enabled stackable type-6/subtype-5 potions with an
+unconditional helpful self buff, a positive duration and no charges or special
+lifecycle flags. Magic must be a stat addition/rate; the original Berserker
+potion uses its existing special implementation. Skills and magic IDs cannot
+overlap between permanent definitions. Exact skill levels must be 1–127 and at
+or below the skill prototype's maximum. Save rechecks current item/skill/magic
+metadata in its transaction. Skill definitions remain in the existing Skill and
+Magic editors; this section does not copy or modify them.
+
+Apply game migrations through **0042** and matching client/server first. Save, then reopen
+the station to refresh offers. Placement/model edits may require re-entering the
+private hall; new model/texture files need normal client asset deployment.
 
 ## Save, reload and version control
 
-Saves affect these 23 **authored content** tables only:
+Saves affect these 28 **authored content** tables only:
 
 - `t_crafting_settings`
 - `t_crafting_recipe`, `t_crafting_ingredient`, `t_crafting_manual`, `t_crafting_bonus_output`
@@ -151,18 +201,29 @@ Saves affect these 23 **authored content** tables only:
 - `t_gathering_settings`, `t_gathering_node`, `t_gathering_node_loot`, `t_gathering_tool`, `t_gathering_profile`
 - `t_herb_population`, `t_herb_spawn_point`, `t_herb_loot`
 - `t_fishing_settings`, `t_fishing_water`, `t_fishing_water_vertex`, `t_fishing_loot`
+- `t_alchemy_effect`, `t_alchemy_consumable`, `t_alchemy_offer`, `t_alchemy_ingredient`, `t_alchemy_facility`
 
-The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 23 tables must be InnoDB; unreviewed custom triggers are refused.
+The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 28 tables must be InnoDB; unreviewed custom triggers are refused.
 
 For edits that use already deployed item definitions and artwork, reopen `/craft` for recipes, `/gather` for gathering resource mastery, or `/artisan` for Artisan Ranks. Ordinary catalogue tuning needs no rebuild or restart. Actual herb populations/sites/loot additionally require administrator `/herbpop reload`; changes to the enabled population ID/zone/NPC ownership set require GameServer restart. Static NPC placements and new prototypes follow their normal deployment path. The Overview apply guide explains these distinctions. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
 
-After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 23 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
+After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 28 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
 
 Review and commit the resulting `x64-server/db/seeds/ep4_data` diff. Export new or changed `t_item` content separately, and promote exported client data into the game's authored asset tree. This button never exports player XP, learned recipes, earned ranks, inventory or character stat points.
 
+The Toolbox's **Record saved content in Git** button also includes all five
+authored infusion tables. Character-owned `ep4_db.t_alchemy_infusion_unlock`,
+`ep4_db.t_alchemy_work_order` jobs/receipts, purchase tokens and acquired timestamps are explicitly excluded.
+
 ## Existing engine limits
 
-The editor exposes authored data, not a new rules engine. Existing limits remain: 4,096 recipes, 64 ranks (both including retired entries), maximum supported skill 65,535, ten materials, eight teaching manuals, eight random outputs, eight distinct bonus effects per mastery tier (eight per Artisan Rank), and craft durations of 0.001–600 seconds. Supported bonuses are the game's flat effects 0–23 and HP/MP regeneration 102/103. Individual amounts and the combined total in each underlying stat channel may not exceed 32,767; overlapping All/Physical effects and retired rewards are included.
+The editor exposes authored data, not a new rules engine. Existing limits remain: 4,096 recipes, 64 ranks (both including retired entries), maximum supported skill 65,535, ten materials, eight teaching manuals, eight random outputs, eight distinct bonus effects per mastery tier (eight per Artisan Rank), and craft durations of 0.001–600 seconds. Supported bonuses include the game's flat effects 0–23 and HP/MP regeneration 102/103, plus the mastery-only effects below (requires game migration 0038 and matching client/server).
+
+Every recipe, resource and Artisan Rank bonus grid uses readable amounts with an explicit Units column. Bulk recipe editing uses the same units. Flat bonuses remain whole points. Movement Speed accepts values such as **0.6 speed units**; Attack Interval Reduction accepts **6%** (a shorter interval between attacks, not a 6% increase in attacks per second); PvE Double Damage Chance accepts **4%**. The percentage effects and movement accept at most two decimal places. This chance is for normal attacks against NPCs; it does not add a PvP or skill-damage proc.
+
+Tier rows are additional rewards: Bronze 0.15, Silver 0.15 and Gold 0.3 movement add up to **0.6 at Gold**. Recipe/resource summaries, Artisan Rank cumulative summaries and the overview show the combined amount in the same readable units. Earlier tiers and previously earned retired definitions remain part of the total.
+
+Storage stays integer-based and is converted only at the editor boundary. Effects 1000/1001/1002 respectively store hundredths of a speed unit, interval-reduction basis points and chance basis points: **0.6→60**, **6%→600**, **4%→400**. These are mastery effects, not equipment option IDs. Individual amounts and combined totals across crafting, gathering and Artisan Ranks must stay within **327.67 movement units**, **90% interval reduction**, and **100% PvE double-damage chance**. Existing flat channels remain capped at 32,767, including overlapping All/Physical effects and retired rewards. Bonus grids reject excess precision, zero and values above the effect's limit; Save also validates the complete catalogue's combined totals.
 
 The 100/60/20 chances and one stat point per crafting skill level are still engine rules. Changing those requires coordinated game code work.
 

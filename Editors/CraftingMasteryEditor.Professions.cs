@@ -35,7 +35,7 @@ public sealed partial class CraftingMasteryEditor
     private bool refreshingProfessionPages;
 
     private static string GatheringProfessionName(int id) => id switch
-    { 1 => "Mining", 2 => "Herbalism", 3 => "Fishing", 4 => "Wave Absorption", _ => "Gathering" };
+    { 1 => "Mining", 2 => "Herbalism", 3 => "Fishing", 4 => "Wave Absorption", 5 => "Infusions", _ => "Gathering" };
 
     private void BuildProfessionPages()
     {
@@ -43,7 +43,8 @@ public sealed partial class CraftingMasteryEditor
             (1, [("t_gathering_settings","Skill rules"),("t_gathering_node","Ore sources"),("t_gathering_node_loot","Passive drops"),("t_gathering_tool","Tools"),("t_gathering_profile","Model profiles")]),
             (2, [("t_gathering_settings","Skill rules"),("t_herb_population","Populations"),("t_herb_spawn_point","Candidate sites"),("t_herb_loot","Harvest drops")]),
             (3, [("t_fishing_settings","Skill and rod"),("t_fishing_water","Fishable waters"),("t_fishing_water_vertex","Water boundaries"),("t_fishing_loot","Catches")]),
-            (4, [("t_gathering_settings","Skill rules"),("t_gathering_node","Wave sources"),("t_gathering_node_loot","Resource drops"),("t_gathering_tool","Tools")])
+            (4, [("t_gathering_settings","Skill rules"),("t_gathering_node","Wave sources"),("t_gathering_node_loot","Resource drops"),("t_gathering_tool","Tools")]),
+            (5, [(InfusionSchema.Offers,"Brewing recipes"),(InfusionSchema.Ingredients,"Extra ingredients"),(InfusionSchema.Consumables,"Permanent potions"),(InfusionSchema.Effects,"Permanent effects"),(InfusionSchema.Facility,"Station")])
         };
         foreach (var definition in definitions)
         {
@@ -78,12 +79,12 @@ public sealed partial class CraftingMasteryEditor
             List = list, Detail = detail, Search = searchBox, Parent = parentBox, Validation = validation };
         professionBrowsers.Add((professionId, table.Name), browser);
         var tools = Flow();
-        bool singleton = table.Name is "t_gathering_settings" or "t_fishing_settings";
+        bool singleton = table.Name is "t_gathering_settings" or "t_fishing_settings" or InfusionSchema.Facility;
         if (!singleton)
         {
             tools.Controls.AddRange([Button("New…", () => NewProfessionEntry(browser, false)),
                 Button("Duplicate…", () => NewProfessionEntry(browser, true))]);
-            if (table.Fields.Any(f => f.Column == "a_enable"))
+            if (table.Fields.Any(f => f.Column is "a_enable" or "a_enabled"))
                 tools.Controls.Add(Button("Retire / Enable", () => ToggleProfessionEntry(browser)));
             tools.Controls.Add(Button(IsDurableProfessionTable(table.Name) ? "Discard new" : "Remove", () => RemoveProfessionEntry(browser)));
         }
@@ -93,7 +94,7 @@ public sealed partial class CraftingMasteryEditor
             tools.Controls.Add(Button("Edit on map…", () => EditProfessionMap(browser)));
         if (table.Name == "t_gathering_profile")
             tools.Controls.Add(Button("Import model profile…", () => ImportProfessionProfile(browser)));
-        tools.Controls.Add(Button("Balance / timing preview…", () => { if (loaded) RunProfessionAction(() => ProfessionPreviews.Show(this, catalog, ProfessionPreviewSource(browser))); }));
+        if (professionId != 5) tools.Controls.Add(Button("Balance / timing preview…", () => { if (loaded) RunProfessionAction(() => ProfessionPreviews.Show(this, catalog, ProfessionPreviewSource(browser))); }));
         split.Panel1.Controls.Add(Vertical(filters, tools, list));
         split.Panel2.Controls.Add(Vertical(detail, validation));
         // Detail is the expanding element, while the validation block remains below it.
@@ -155,7 +156,7 @@ public sealed partial class CraftingMasteryEditor
         browser.Binding = true;
         try
         {
-            var choices = new List<ProfessionChoice> { new(0, "All sources") };
+            var choices = new List<ProfessionChoice> { new(0, browser.Table.Name==InfusionSchema.Ingredients ? "All brewing recipes" : browser.Profession==5 ? "All permanent effects" : "All sources") };
             choices.AddRange(ParentRows(parent.ReferenceTable, browser.Profession)
                 .Select(r => new ProfessionChoice(r.Int("a_index"), DescribeProfessionRow(parent.ReferenceTable, r))));
             browser.Parent.DataSource = choices;
@@ -177,9 +178,9 @@ public sealed partial class CraftingMasteryEditor
         int parentId = browser.Parent.SelectedItem is ProfessionChoice choice ? choice.Id : 0;
         var entries = ProfessionRows(browser).Where(r => parent == null || parentId == 0 || r.Int(parent.Column) == parentId)
             .Select(r => new ProfessionListEntry(r, r.Key(browser.Table), DescribeProfessionRow(browser.Table.Name, r),
-                ProfessionRowSummary(browser.Table.Name, r), r.Enabled ? "Enabled" : "Retired"))
+                ProfessionRowSummary(browser.Table.Name, r), browser.Table.Name is InfusionSchema.Effects or InfusionSchema.Consumables ? "Permanent" : r.Enabled ? "Enabled" : "Retired"))
             .Where(e => search.Length == 0 || (e.Identity + " " + e.Name + " " + e.Summary).Contains(search, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(e => e.Row.Int("a_index")).ThenBy(e => e.Row.Int("a_slot")).ThenBy(e => e.Row.Int("a_vertex_index")).ToList();
+            .OrderBy(e => browser.Table.Name==InfusionSchema.Offers ? e.Row.Int("a_sort") : e.Row.Int("a_index")).ThenBy(e=>e.Row.Int("a_index")).ThenBy(e => e.Row.Int("a_slot")).ThenBy(e => e.Row.Int("a_vertex_index")).ToList();
         browser.Binding = true;
         try
         {
@@ -196,6 +197,10 @@ public sealed partial class CraftingMasteryEditor
     private string NpcName(int id) => catalog.Professions.Npcs.TryGetValue(id, out var npc) ? npc.Name : "Missing NPC";
     private string ZoneName(int id) => catalog.Professions.Zones.GetValueOrDefault(id, "Missing zone");
     private string DescribeProfessionRow(string table, ProfessionRow row) => table switch {
+        InfusionSchema.Effects => catalog.ItemName(row.Int("a_item_index")),
+        InfusionSchema.Offers => catalog.ItemName(row.Int("a_output_item_index")),
+        InfusionSchema.Consumables => catalog.ItemName(row.Int("a_item_index")),
+        InfusionSchema.Facility => row.Get("a_name"),
         "t_gathering_settings" => GatheringProfessionName(row.Int("a_index")) + " progression",
         "t_fishing_settings" => "Fishing progression and carried rod",
         "t_gathering_node" => NpcName(row.Int("a_npc_index")),
@@ -219,6 +224,11 @@ public sealed partial class CraftingMasteryEditor
             return $"×{row.Int("a_item_count")} • {chance:0.##}%";
         }
         return table switch {
+            InfusionSchema.Effects => $"{catalog.Professions.Infusions.Potions.GetValueOrDefault(row.Int("a_item_index"))?.SkillName??"Skill #"+row.Int("a_skill_index")} • level {row.Int("a_skill_level")}",
+            InfusionSchema.Offers => $"{row.Int("a_output_count"):N0} finished • {TimeSpan.FromSeconds(Math.Max(0,row.Int("a_duration_sec"))).TotalHours:0.##} h • {row.Int("a_required_count"):N0} original potions",
+            InfusionSchema.Consumables => InfusionPotionName(row.Int("a_effect_index")),
+            InfusionSchema.Ingredients => $"×{row.Int("a_count"):N0} • recipe #{row.Int("a_offer_index")}",
+            InfusionSchema.Facility => $"Private hall • X {row.Decimal("a_x")/100:0.##}, Z {row.Decimal("a_z")/100:0.##}",
             "t_gathering_node" => catalog.ItemName(row.Int("a_item_index")) + $" • requires {row.Int("a_required_skill")}",
             "t_gathering_tool" => $"Requires {row.Int("a_required_skill")} • +{row.Decimal("a_yield_bonus_bp") / 100:0.##}% yield",
             "t_herb_population" => $"Minimum {row.Int("a_min_alive")} • {catalog.Professions.Rows("t_herb_spawn_point").Count(r => r.Int("a_population_index") == row.Int("a_index") && r.Enabled)} enabled sites",
@@ -247,6 +257,19 @@ public sealed partial class CraftingMasteryEditor
             : browser.Table.Help;
         var help = Label(description); help.MaximumSize = new(650, 0); fields.Controls.Add(help);
         var quick = Flow(); quick.Dock = DockStyle.None;
+        if (browser.Table.Name==InfusionSchema.Offers && catalog.Professions.Rows(InfusionSchema.Effects).FirstOrDefault(r=>r.Int("a_index")==row.Int("a_effect_index")) is { } effect)
+        {
+            quick.Controls.Add(Button("Open original potion",()=>OpenItem(effect.Int("a_item_index"))));
+            quick.Controls.Add(Button("Effect definition…",()=>NavigateInfusionEffect(effect.Int("a_index"))));
+            quick.Controls.Add(Button("Open finished potion",()=>OpenItem(row.Int("a_output_item_index"))));
+            quick.Controls.Add(Button("Extra ingredients…",()=>SelectProfessionChild(5,InfusionSchema.Ingredients,row.Int("a_index"))));
+            fields.Controls.Add(Label($"Consumes {row.Int("a_required_count"):N0} × {catalog.ItemName(effect.Int("a_item_index"))}, plus extra ingredients. Brews {row.Int("a_output_count"):N0} × {catalog.ItemName(row.Int("a_output_item_index"))} while online or offline. The recipient consumes it to gain the exact permanent effect. Already knowing the effect does not prevent brewing."));
+        }
+        if(browser.Table.Name==InfusionSchema.Consumables) {
+            quick.Controls.Add(Button("Open finished item",()=>OpenItem(row.Int("a_item_index"))));
+            quick.Controls.Add(Button("Effect definition…",()=>NavigateInfusionEffect(row.Int("a_effect_index"))));
+            fields.Controls.Add(Label("The immutable effect mapping supplies the original potion's skill and level. Keep the finished item's ordinary skill fields at zero so it cannot fall back to a timed effect."));
+        }
         if (row.Int("a_npc_index") > 0)
             quick.Controls.Add(Button("Open NPC / static placement…", () => new NPCEditor(main, row.Int("a_npc_index")).Show(this)));
         if (browser.Table.Name == "t_gathering_node")
@@ -339,7 +362,12 @@ public sealed partial class CraftingMasteryEditor
             bool keyLocked = browser.Table.Name is "t_gathering_settings" or "t_fishing_settings"
                 ? field.Column == "a_index"
                 : IsDurableProfessionTable(browser.Table.Name) && browser.Table.Keys.Contains(field.Column);
-            bool readOnly = reserved || keyLocked || field.Column == "a_profession" || field.Column is "a_slot" or "a_vertex_index";
+            bool effectIdentity = browser.Table.Name==InfusionSchema.Effects && (field.Column is "a_item_index" or "a_skill_index" or "a_skill_level")
+                && original.Professions.Rows(InfusionSchema.Effects).Any(r=>r.Int("a_index")==row.Int("a_index"));
+            effectIdentity |= browser.Table.Name==InfusionSchema.Consumables && field.Column=="a_effect_index"
+                && original.Professions.Rows(InfusionSchema.Consumables).Any(r=>r.Int("a_item_index")==row.Int("a_item_index"));
+            bool derivedSkill = browser.Table.Name==InfusionSchema.Effects && field.Column is "a_skill_index" or "a_skill_level";
+            bool readOnly = reserved || keyLocked || effectIdentity || derivedSkill || field.Column == "a_profession" || field.Column is "a_slot" or "a_vertex_index";
             if (field.Kind == FieldKind.Geometry)
             {
                 var label = Label(string.IsNullOrEmpty(row.Get(field.Column)) ? "No model profile imported" : "Imported interaction mesh (generated data)");
@@ -360,8 +388,12 @@ public sealed partial class CraftingMasteryEditor
                 text.TextChanged += (_, _) => { row.Set(field.Column, text.Text); ProfessionEntryEdited(browser); };
                 line.Controls.Add(text);
             }
-            else if (field.Kind is FieldKind.Parent or FieldKind.Profile && !readOnly)
-                AddProfessionReference(line, browser, row, field);
+            else if (field.Kind == FieldKind.Duration && !readOnly)
+                AddProfessionDuration(line,browser,row,field);
+            else if (field.Kind == FieldKind.ArtisanRank && !readOnly)
+                AddProfessionArtisanRank(line, browser, row, field);
+            else if (field.Kind is FieldKind.Parent or FieldKind.Profile)
+                AddProfessionReference(line, browser, row, field, readOnly);
             else if (field.Kind is FieldKind.Item or FieldKind.Npc or FieldKind.Zone && !readOnly)
                 AddProfessionPicker(line, browser, row, field);
             else if (field.Column == "a_profession" || browser.Table.Name == "t_gathering_settings" && field.Column == "a_index")
@@ -378,9 +410,9 @@ public sealed partial class CraftingMasteryEditor
             }
             content.Controls.Add(line);
             bool resourceHelp = browser.Table.Name == "t_gathering_node" && field.Column == "a_item_index";
-            if (field.Help.Length > 0 || readOnly && field.Identity || resourceHelp)
+            if (field.Help.Length > 0 || readOnly && field.Identity || derivedSkill || effectIdentity || resourceHelp)
             {
-                string explanation = field.Help;
+                string explanation = derivedSkill ? "Derived from the selected original potion. Its exact skill and level define the permanent buff." : effectIdentity ? "Published permanent identity: retained for every character who already acquired this effect." : field.Help;
                 if (resourceHelp) explanation += browser.Profession == 1
                     ? "Active Mining awards this resource. Passive gathering uses the weighted drop list when configured. Each drop's resource mastery is edited separately."
                     : "This item labels the source. Active and passive Wave rewards use its weighted drop list; changing this display item does not replace those outcomes.";
@@ -392,9 +424,38 @@ public sealed partial class CraftingMasteryEditor
         }
     }
 
-    private void AddProfessionReference(FlowLayoutPanel line, ProfessionBrowser browser, ProfessionRow row, ProfessionField field)
+    private void AddProfessionArtisanRank(FlowLayoutPanel line, ProfessionBrowser browser, ProfessionRow row, ProfessionField field)
     {
-        var combo = new ComboBox { Name = field.Column, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = "Name", ValueMember = "Id" };
+        var combo = new ComboBox { Name = field.Column, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList,
+            DisplayMember = "Name", ValueMember = "Id" };
+        bool refreshing = false;
+        void RefreshChoices()
+        {
+            refreshing = true; combo.BeginUpdate();
+            try
+            {
+                var choices = new List<ProfessionChoice> { new(0, "None — unrestricted") };
+                choices.AddRange(catalog.Ranks.OrderBy(rank => rank.Order).ThenBy(rank => rank.Id)
+                    .Select(rank => new ProfessionChoice(rank.Id, $"{rank.Name} (ID {rank.Id})" + (rank.Enabled ? "" : " — retired"))));
+                int saved = row.Int(field.Column);
+                if (!choices.Any(choice => choice.Id == saved)) choices.Add(new(saved, "Missing Artisan Rank (ID " + saved + ")"));
+                combo.Items.Clear(); combo.Items.AddRange(choices.Cast<object>().ToArray());
+                combo.SelectedIndex = choices.FindIndex(choice => choice.Id == saved);
+            }
+            finally { combo.EndUpdate(); refreshing = false; }
+        }
+        RefreshChoices();
+        combo.DropDown += (_, _) => RefreshChoices();
+        combo.SelectedIndexChanged += (_, _) => {
+            if (refreshing || combo.SelectedItem is not ProfessionChoice selected) return;
+            row.Set(field.Column, selected.Id); ProfessionEntryEdited(browser);
+        };
+        line.Controls.Add(combo);
+    }
+
+    private void AddProfessionReference(FlowLayoutPanel line, ProfessionBrowser browser, ProfessionRow row, ProfessionField field, bool readOnly=false)
+    {
+        var combo = new ComboBox { Name = field.Column, Width = 350, DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = "Name", ValueMember = "Id", Enabled=!readOnly };
         var choices = ParentRows(field.ReferenceTable, browser.Profession)
             .Select(r => new ProfessionChoice(r.Int("a_index"), DescribeProfessionRow(field.ReferenceTable, r))).ToList();
         if (field.Min == 0 || choices.Count == 0) choices.Insert(0, new(0, "None — create or import a source first"));
@@ -414,7 +475,15 @@ public sealed partial class CraftingMasteryEditor
         var number = new NumericUpDown { Name = field.Column, Minimum = Math.Min(field.Min, row.Int(field.Column)), Maximum = field.Max,
             Value = row.Int(field.Column), Width = 125, ThousandsSeparator = true };
         var name = Label(ProfessionReferenceName(field.Kind, row.Int(field.Column))); name.MaximumSize = new(330, 0);
-        number.ValueChanged += (_, _) => { row.Set(field.Column, number.Value); name.Text = ProfessionReferenceName(field.Kind, (int)number.Value); ProfessionEntryEdited(browser); };
+        number.ValueChanged += (_, _) => {
+            row.Set(field.Column, number.Value); name.Text = ProfessionReferenceName(field.Kind, (int)number.Value);
+            if(browser.Table.Name==InfusionSchema.Effects && field.Column=="a_item_index") {
+                DeriveInfusionSkill(row);
+                foreach(var skillControl in Descendants(browser.Detail).OfType<NumericUpDown>().Where(c=>c.Name is "a_skill_index" or "a_skill_level"))
+                    skillControl.Value=Math.Clamp(row.Int(skillControl.Name),skillControl.Minimum,skillControl.Maximum);
+            }
+            ProfessionEntryEdited(browser);
+        };
         line.Controls.Add(number);
         line.Controls.Add(Button("Choose…", () => {
             int? id = PickProfessionReference(field.Kind, (int)number.Value);
@@ -445,7 +514,7 @@ public sealed partial class CraftingMasteryEditor
                 var entry = entries[i]; entry.Identity = entry.Row.Key(browser.Table);
                 entry.Name = DescribeProfessionRow(browser.Table.Name, entry.Row);
                 entry.Summary = ProfessionRowSummary(browser.Table.Name, entry.Row);
-                entry.State = entry.Row.Enabled ? "Enabled" : "Retired"; entries.ResetItem(i);
+                entry.State = browser.Table.Name is InfusionSchema.Effects or InfusionSchema.Consumables ? "Permanent" : entry.Row.Enabled ? "Enabled" : "Retired"; entries.ResetItem(i);
             } } finally { browser.Binding = false; }
         }
         UpdateProfessionValidation(browser);
@@ -459,7 +528,20 @@ public sealed partial class CraftingMasteryEditor
             : $"{errors.Count} issue(s) prevent saving:\r\n" + string.Join("\r\n", errors.Take(3).Select(i => i.ToString()))
                 + (errors.Count > 3 ? "\r\nOpen Validate / Overview for the full list." : "");
     }
-    private static string ProfessionApplyGuidance(ProfessionBrowser browser) => browser.Profession == 2
+    private void DeriveInfusionSkill(ProfessionRow row) {
+        bool found=catalog.Professions.Infusions.Potions.TryGetValue(row.Int("a_item_index"),out var potion);
+        row.Set("a_skill_index",found?potion!.SkillId:0);row.Set("a_skill_level",found?potion!.SkillLevel:0);
+    }
+    private void NavigateInfusionEffect(int id) {
+        NavigateProfessionPage(5,InfusionSchema.Effects);
+        var browser=professionBrowsers[(5,InfusionSchema.Effects)];browser.Search.Clear();
+        browser.Selected=catalog.Professions.Rows(InfusionSchema.Effects).FirstOrDefault(r=>r.Int("a_index")==id);
+        RefreshProfessionBrowser(browser);
+    }
+    private string InfusionPotionName(int effectId) => catalog.Professions.Rows(InfusionSchema.Effects).FirstOrDefault(r=>r.Int("a_index")==effectId) is { } effect ? catalog.ItemName(effect.Int("a_item_index")) : "Missing permanent effect #"+effectId;
+    private static string ProfessionApplyGuidance(ProfessionBrowser browser) => browser.Profession == 5
+        ? "Apply: Save, then reopen the Alchemy station. Permanent effect identities and character unlocks are retained. Station placement/model changes may require re-entering the private hall; new artwork needs client asset deployment. Accepted brewing jobs keep their original terms. Player unlocks, jobs and receipts are never exported."
+        : browser.Profession == 2
         ? "Apply: Save, then reopen /gather for skill/loot/mastery changes. Use the admin command /herbpop reload for population timing and candidate-site edits. Enabling a new population or changing its zone/NPC ownership needs a GameServer restart."
         : browser.Table.Name == "t_gathering_profile"
             ? "Apply: import to the draft, Save, then reopen /gather. Interaction geometry must match the deployed client model. Model/texture asset changes still need separate deployment."
@@ -475,7 +557,7 @@ public sealed partial class CraftingMasteryEditor
         ? row.Int("a_item_index") : null;
 
     private static bool IsDurableProfessionTable(string table) => table is "t_gathering_node" or "t_gathering_tool"
-        or "t_gathering_profile" or "t_herb_population" or "t_herb_spawn_point" or "t_fishing_water";
+        or "t_gathering_profile" or "t_herb_population" or "t_herb_spawn_point" or "t_fishing_water" or InfusionSchema.Effects or InfusionSchema.Offers or InfusionSchema.Facility or InfusionSchema.Consumables;
     private void RunProfessionAction(Action action)
     { try { action(); } catch (Exception error) { Error(error); } }
 
@@ -489,7 +571,12 @@ public sealed partial class CraftingMasteryEditor
             ProfessionRow? template = duplicate ? browser.Selected : ProfessionRows(browser).FirstOrDefault();
             var row = template == null ? ProfessionSchema.NewRow(definition.Name) : CraftingCatalog.Copy(template);
             var rows = catalog.Professions.Rows(definition.Name);
+            if (definition.Name is InfusionSchema.Effects or InfusionSchema.Offers && rows.Count>=16)
+                throw new InvalidOperationException("The station supports at most 16 permanent effects and 16 offers, including retired offers.");
+            if(definition.Name==InfusionSchema.Consumables && rows.Count>=64)throw new InvalidOperationException("At most 64 permanent potion mappings are supported; retain published mappings.");
             var parent = definition.Fields.FirstOrDefault(f => f.Kind == FieldKind.Parent);
+            if(definition.Name==InfusionSchema.Ingredients && browser.Parent.SelectedItem is ProfessionChoice selected && selected.Id>0 && rows.Count(r=>r.Int("a_offer_index")==selected.Id)>=8)
+                throw new InvalidOperationException("A brewing recipe supports at most eight extra ingredients.");
             if (definition.Fields.Any(f => f.Column == "a_index")) row.Set("a_index", checked(rows.Select(r => r.Int("a_index")).DefaultIfEmpty().Max() + 1));
             if (row.Values.ContainsKey("a_profession")) row.Set("a_profession", browser.Profession);
             if (parent != null)
@@ -499,6 +586,8 @@ public sealed partial class CraftingMasteryEditor
                 if (selectedParent <= 0) throw new InvalidOperationException("Create a source first, then add its drops, sites or boundaries.");
                 row.Set(parent.Column, selectedParent);
             }
+            if(definition.Name==InfusionSchema.Ingredients && rows.Count(r=>r.Int("a_offer_index")==row.Int("a_offer_index"))>=8)
+                throw new InvalidOperationException("A brewing recipe supports at most eight extra ingredients.");
             if (definition.Name == "t_gathering_profile" && !duplicate)
             {
                 row.Set("a_geometry_hex", "");
@@ -527,12 +616,13 @@ public sealed partial class CraftingMasteryEditor
             if (definition.Fields.Any(f => f.Column == "a_item_index"))
             {
                 int? item = PickItem(row.Int("a_item_index")); if (!item.HasValue) return;
-                if (definition.Name == "t_gathering_tool" && rows.Any(r => r.Int("a_item_index") == item))
+                if (definition.Name is "t_gathering_tool" or InfusionSchema.Consumables && rows.Any(r => r.Int("a_item_index") == item))
                     throw new InvalidOperationException("This tool already has a gathering definition. Select it in the list to edit it.");
                 row.Set("a_item_index", item.Value);
+                if(definition.Name==InfusionSchema.Effects)DeriveInfusionSkill(row);
                 if (ResourceItemFor(definition.Name, row).HasValue) EnsureGatheringResource(item.Value, browser.Profession);
             }
-            if (definition.Name.EndsWith("_loot", StringComparison.Ordinal))
+            if (definition.Name.EndsWith("_loot", StringComparison.Ordinal) || definition.Name==InfusionSchema.Ingredients)
                 row.Set("a_slot", rows.Count(r => r.Int(parent!.Column) == row.Int(parent.Column)));
             if (definition.Name == "t_fishing_water_vertex")
                 row.Set("a_vertex_index", rows.Count(r => r.Int("a_water_index") == row.Int("a_water_index") && r.Int("a_polygon_index") == row.Int("a_polygon_index")));
@@ -551,6 +641,7 @@ public sealed partial class CraftingMasteryEditor
             "t_gathering_node" => new[] { ("t_gathering_node_loot", "a_node_index") },
             "t_herb_population" => new[] { ("t_herb_loot", "a_population_index"), ("t_herb_spawn_point", "a_population_index") },
             "t_fishing_water" => new[] { ("t_fishing_loot", "a_water_index"), ("t_fishing_water_vertex", "a_water_index") },
+            InfusionSchema.Offers => new[] { (InfusionSchema.Ingredients,"a_offer_index") },
             _ => Array.Empty<(string, string)>()
         };
         foreach (var (childTable, parentColumn) in children)
@@ -567,7 +658,7 @@ public sealed partial class CraftingMasteryEditor
     private void ToggleProfessionEntry(ProfessionBrowser browser)
     {
         if (browser.Selected is not ProfessionRow row) return;
-        row.Set("a_enable", row.Enabled ? 0 : 1); ProfessionEntryEdited(browser); ShowProfessionEntry(browser);
+        row.Set(row.Values.ContainsKey("a_enabled")?"a_enabled":"a_enable", row.Enabled ? 0 : 1); ProfessionEntryEdited(browser); ShowProfessionEntry(browser);
     }
     private void RemoveProfessionEntry(ProfessionBrowser browser)
     {
@@ -575,12 +666,12 @@ public sealed partial class CraftingMasteryEditor
         var definition = browser.Table;
         if (IsDurableProfessionTable(definition.Name) && original.Professions.Rows(definition.Name).Any(r => r.Key(definition) == row.Key(definition)))
         {
-            status.Text = definition.Fields.Any(f => f.Column == "a_enable") ? "Published identities are preserved. Use Retire / Enable instead."
-                : "Published model profiles retain their identity. Import a replacement or leave the unused profile defined.";
+            status.Text = definition.Fields.Any(f => f.Column is "a_enable" or "a_enabled") ? "Published identities are preserved. Use Retire / Enable instead."
+                : "Published identities and permanent potion mappings must remain defined for existing items, effects and accepted brewing jobs.";
             return;
         }
         RunProfessionAction(() => {
-            if (definition.Name is "t_gathering_node" or "t_herb_population" or "t_fishing_water")
+            if (definition.Name is "t_gathering_node" or "t_herb_population" or "t_fishing_water" or InfusionSchema.Offers)
             {
                 foreach (var child in ProfessionSchema.Tables)
                 {
