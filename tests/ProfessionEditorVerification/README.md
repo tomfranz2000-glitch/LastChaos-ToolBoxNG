@@ -25,3 +25,10 @@ Station access checks cover named Artisan Rank choices, None/unrestricted access
 retired durable IDs, missing references and preserving IDs independently of order.
 
 The construction extension passes **139 checks**, including editable one-time costs, separate availability controls, build-only rank copy, unbuilt plot fields, free builds, duplicate/material/quantity limits, and player-data exclusion. The Station page puts both availability switches and the build rank first; normal and minimum-size screenshots are captured.
+
+Artisan perk checks use the actual named checkbox, its seeded Rank I state,
+disabling/re-enabling, assigning another rank, retained disabled mappings, clear
+retirement copy, cumulative summary, JSON/fingerprints and a minimum-size capture.
+
+The complete Artisan-perk extension passes **150 checks**; screenshot evidence
+includes the separate Rank settings and Rewards tabs at 1100 by 720.

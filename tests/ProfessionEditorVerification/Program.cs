@@ -61,6 +61,7 @@ static class Program
         foreach (var r in raw.Tables["t_gathering_material_bonus"]) c.Gathering.Single(x => x.ItemId == N(r, "a_item_index")).Bonuses.Add(new() { Rank = N(r, "a_rank"), Effect = N(r, "a_option_type"), Amount = N(r, "a_value") });
         foreach (var r in raw.Tables["t_crafting_master_rank"]) c.Ranks.Add(new() { Id = N(r, "a_index"), Order = N(r, "a_order"), Name = r["a_name"], RequiredMastered = N(r, "a_required_mastered"), Emblem = r["a_emblem"], Enabled = N(r, "a_enable") == 1 });
         foreach (var r in raw.Tables["t_crafting_master_rank_bonus"]) c.Ranks.Single(x => x.Id == N(r, "a_rank_index")).Bonuses.Add(new() { Effect = N(r, "a_option_type"), Amount = N(r, "a_value") });
+        foreach (var r in raw.Tables["t_crafting_master_rank_perk"]) c.Ranks.Single(x=>x.Id==N(r,"a_rank_index")).Perks.Add(new() {Type=N(r,"a_perk_type"),Enabled=N(r,"a_enabled")==1});
         c.UpdateNames(); return c;
     }
 
@@ -75,7 +76,7 @@ static class Program
         Check(c.Professions.Rows(InfusionSchema.Effects).Count==4&&c.Professions.Rows(InfusionSchema.Offers).All(r=>r.Int("a_required_count")==250),"four initial offers each consume 250 original potions");
         Check(InfusionSchema.Tables.All(t=>ContentRecordingPolicy.AllowlistedTables.Any(a=>a.Key=="ep4_data/"+t.Name))&&!ContentRecordingPolicy.AllowlistedTables.Any(t=>t.Table is "t_alchemy_infusion_unlock" or "t_alchemy_work_order" or "t_alchemy_facility_unlock"),"content recording includes authored infusion tables and excludes all character ownership/receipts");
         Check(ContentRecordingPolicy.IsPlayerOwnedAlchemyTable("t_alchemy_facility_unlock")&&ContentRecordingPolicy.IsPlayerOwnedAlchemyTable("t_alchemy_work_order")&&!ContentRecordingPolicy.IsPlayerOwnedAlchemyTable(InfusionSchema.ConstructionCosts),"recording has an explicit protected player-table boundary separate from its authored allowlist");
-        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==124,"recording policy exactly matches all 124 authored seed tables");
+        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==125,"recording policy exactly matches all 125 authored seed tables");
         var copied=CraftingCatalog.Copy(c);Check(copied.Fingerprint()==initial&&!JsonSerializer.Serialize(copied).Contains("MagicIds"),"all authored infusion rows round-trip exactly without read-only metadata or progression");
         CraftingCatalog Draft() {var draft=CraftingCatalog.Copy(c);draft.Items=c.Items;draft.Professions.Infusions=c.Professions.Infusions;return draft;}
         var buildCosts=c.Professions.Rows(InfusionSchema.ConstructionCosts);
@@ -211,6 +212,26 @@ static class Program
         int book = (int)books.Rows[1].DataBoundItem!.GetType().GetProperty("Id")!.GetValue(books.Rows[1].DataBoundItem)!;
         Check(Field<NumericUpDown>(editor, "bookItem").Value == book, "teaching-item assignment follows row-one selection without lag");
         Check(c.Fingerprint() == initial && !Field<bool>(editor, "dirty"), "browsing every page and resizing never edits content");
+        Call(editor,"SelectNavigation","Artisan Ranks");tabs.SelectedIndex=2;rankGrid.CurrentCell=rankGrid.Rows[0].Cells[0];Application.DoEvents();
+        ((TabControl)editor.Controls.Find("ArtisanRankDetails",true).Single()).SelectedIndex=1;Application.DoEvents();
+        var rankOne=Field<MastersRank>(editor,"selectedRank");var perkToggle=(CheckBox)editor.Controls.Find("ArtisanPerk_1",true).Single();
+        Check(rankOne.Id==1&&perkToggle.Checked&&perkToggle.Text=="Equipment cannot break during upgrades","Rank I exposes the seeded named nonstat perk in its own checkbox");
+        Check(!rankOne.Bonuses.Any(b=>b.Effect==4&&b.Amount==100),"Rank I perk replacement does not retain the default HP placeholder");
+        Check(All(Field<Panel>(editor,"rankDetail")).OfType<Label>().Any(l=>l.Text.Contains("Unchecking removes that benefit")),"rank editor explains perk removal versus retiring new unlocks");
+        perkToggle.Checked=false;Check(!rankOne.Perks.Single().Enabled&&Field<bool>(editor,"dirty"),"actual perk checkbox disables the mapping and marks the draft changed");
+        Check(c.Fingerprint()!=initial&&CraftingCatalog.Copy(c).Ranks.Single(r=>r.Id==1).Perks.Single().Enabled==false,"disabled perk participates in draft JSON and concurrency fingerprint");
+        perkToggle.Checked=true;Check(c.Fingerprint()==initial&&Field<Label>(editor,"rankSummary").Text.Contains(perkToggle.Text),"reenabling restores exact authored content and cumulative readable perk summary");
+        rankGrid.CurrentCell=rankGrid.Rows[1].Cells[0];Application.DoEvents();var otherRank=Field<MastersRank>(editor,"selectedRank");
+        perkToggle=(CheckBox)editor.Controls.Find("ArtisanPerk_1",true).Single();Check(!perkToggle.Checked&&otherRank.Perks.Count==0,"a rank without protection has an unchecked named perk");
+        perkToggle.Checked=true;Check(otherRank.Perks.Single().Type==1&&otherRank.Perks.Single().Enabled&&rankOne.Perks.Single().Enabled,"actual checkbox assigns protection to another stable rank without changing Rank I");
+        perkToggle.Checked=false;Check(otherRank.Perks.Count==1&&!otherRank.Perks.Single().Enabled,"unchecking retains explicit disabled mapping for later editing");
+        otherRank.Perks.Clear();Call(editor,"ShowRank");Check(c.Fingerprint()==initial,"discarding the test assignment restores all authored content");
+        rankGrid.CurrentCell=rankGrid.Rows[0].Cells[0];Application.DoEvents();Capture("artisan-perks",new Size(1100,720));
+        var rewardTabs=(TabControl)editor.Controls.Find("ArtisanRankDetails",true).Single();
+        var statGrid=All(rewardTabs.TabPages[1]).OfType<DataGridView>().Single();
+        Check(statGrid.Visible&&statGrid.Height>=130&&editor.Controls.Find("ArtisanPerk_1",true).Single().Visible,"perks and numeric stat grid both remain visible at the minimum supported editor size");
+        rewardTabs.SelectedIndex=0;Capture("artisan-rank-settings",new Size(1100,720));
+        Set(editor,"dirty",false);
         Navigate(1, "t_gathering_node");
         var browsers = Field<object>(editor, "professionBrowsers") as System.Collections.IDictionary;
         object browser = browsers![(1, "t_gathering_node")]!;

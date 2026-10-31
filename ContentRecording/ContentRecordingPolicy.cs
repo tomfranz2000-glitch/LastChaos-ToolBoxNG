@@ -49,6 +49,7 @@ t_crafting_ingredient
 t_crafting_manual
 t_crafting_master_rank
 t_crafting_master_rank_bonus
+t_crafting_master_rank_perk
 t_crafting_mastery
 t_crafting_mastery_bonus
 t_crafting_recipe

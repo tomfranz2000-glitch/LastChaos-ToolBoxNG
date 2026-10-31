@@ -8,7 +8,7 @@ internal static class Program
 {
     // Intentionally fixed disposable endpoint. Never use the toolbox settings.
     const string Endpoint = "Server=127.0.0.1;Port=33317;User ID=root;Password=crafting-fixture-only;Connection Timeout=4;Default Command Timeout=10;";
-    const string Connection = Endpoint + "Database=ep4_data;Character Set=utf8mb4;";
+    const string Connection = Endpoint + "Database=ep4_data;Character Set=utf8mb4;Allow User Variables=true;";
     static readonly CraftingRepository Repository = new(Connection, "usa");
     static readonly List<object> Results = [];
     static MySqlConnection db = null!;

@@ -58,6 +58,20 @@ public sealed class GatheringResource
     [JsonIgnore] public string Name { get; set; } = "";
     [JsonIgnore] public string ProfessionName => Profession switch { 1=>"Mining",2=>"Herbalism",3=>"Fishing",4=>"Wave Absorption",_=>"Unknown" };
 }
+public sealed class RankPerk
+{
+    public int Type { get; set; }
+    public bool Enabled { get; set; } = true;
+}
+public static class ArtisanPerks
+{
+    public const int UpgradeBreakProtection = 1;
+    public static IReadOnlyDictionary<int,string> Names { get; } = new Dictionary<int,string> {
+        [UpgradeBreakProtection] = "Equipment cannot break during upgrades"
+    };
+    public static IEnumerable<string> Active(IEnumerable<MastersRank> ranks) => ranks.SelectMany(r=>r.Perks)
+        .Where(p=>p.Enabled && Names.ContainsKey(p.Type)).Select(p=>p.Type).Distinct().Order().Select(type=>Names[type]);
+}
 public sealed class MastersRank
 {
     public int Id { get; set; }
@@ -67,6 +81,7 @@ public sealed class MastersRank
     public string Emblem { get; set; } = "AchievementCategory_2001.tex";
     public bool Enabled { get; set; } = true;
     public List<Bonus> Bonuses { get; set; } = [];
+    public List<RankPerk> Perks { get; set; } = [];
 }
 public sealed record CraftingItem(int Id, string Name, bool Enabled, int Type, int Subtype,
     long Flags, int StackLimit, int Texture, int Row, int Column, bool Rebirth, int Wearing = -1)
@@ -89,7 +104,7 @@ public sealed class CraftingCatalog
         static List<Bonus> Ordered(List<Bonus> bonuses)=>bonuses.OrderBy(b=>b.Rank).ThenBy(b=>b.Effect).ToList();
         foreach(var r in copy.Recipes) r.Bonuses=Ordered(r.Bonuses);
         foreach(var r in copy.Gathering) r.Bonuses=Ordered(r.Bonuses);
-        foreach(var r in copy.Ranks) r.Bonuses=Ordered(r.Bonuses);
+        foreach(var r in copy.Ranks) { r.Bonuses=Ordered(r.Bonuses);r.Perks=r.Perks.OrderBy(p=>p.Type).ToList(); }
         return JsonSerializer.Serialize(new {copy.SkillCap,Recipes=copy.Recipes.OrderBy(r=>r.Id),Ranks=copy.Ranks.OrderBy(r=>r.Id),Gathering=copy.Gathering.OrderBy(r=>r.ItemId),Professions=copy.Professions.Canonical()});
     }
     public string ItemName(int id) => Items.TryGetValue(id, out var item) ? item.Name : $"Missing item #{id}";
@@ -229,6 +244,8 @@ public static class CraftingRules
             if (r.Emblem.Length > 63 || !Regex.IsMatch(r.Emblem, "^[A-Za-z0-9_-]+[.]tex$")) Error(t, "Emblem must be a .tex filename in Data/Interface (maximum 63 ASCII characters).");
             if (r.Enabled && r.RequiredMastered > available) Note(t, $"Needs {r.RequiredMastered} mastery points; {available} are currently available across crafting and gathering. Historical ranks still count.");
             Bonuses(t, r.Bonuses);
+            if (r.Perks.Any(p=>!ArtisanPerks.Names.ContainsKey(p.Type)) || r.Perks.Select(p=>p.Type).Distinct().Count()!=r.Perks.Count)
+                Error(t, "Use each supported Artisan perk at most once; unknown perk types cannot be saved.");
         }
         if (totals.Take(20).Any(v => v > 32767)) Error("Bonuses", "Combined crafting, gathering and Artisan Rank bonuses exceed 32767 in a stat channel, including overlapping All/Physical effects and retired definitions.");
         for (int channel=20;channel<totals.Length;channel++)

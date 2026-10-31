@@ -15,3 +15,6 @@ change, repeated no-op, final-row deletion, client export failure, commit hook
 failure and successful retry. It checks unrelated staged/worktree preservation,
 snapshot cleanup and unchanged player sentinels. No game or Toolbox main window
 is launched. The temporary checkout is deleted afterwards.
+
+The first saved-change commit specifically exercises the new authored Artisan
+perk table, including its subsequent unchanged/no-op click.

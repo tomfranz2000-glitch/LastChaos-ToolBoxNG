@@ -8,7 +8,7 @@ namespace LastChaos_ToolBoxNG.Crafting;
 public sealed class CraftingRepository(string connectionString, string locale)
 {
     public static readonly string[] BaseTables = ["t_crafting_settings", "t_crafting_recipe", "t_crafting_ingredient", "t_crafting_manual",
-        "t_crafting_bonus_output", "t_crafting_mastery", "t_crafting_mastery_bonus", "t_crafting_master_rank", "t_crafting_master_rank_bonus",
+        "t_crafting_bonus_output", "t_crafting_mastery", "t_crafting_mastery_bonus", "t_crafting_master_rank", "t_crafting_master_rank_bonus", "t_crafting_master_rank_perk",
         "t_gathering_material", "t_gathering_material_bonus"];
     public static readonly string[] Tables = [..BaseTables,..ProfessionSchema.Tables.Select(t=>t.Name)];
     private readonly string language = Regex.IsMatch(locale, "^[a-z]+$") ? locale : throw new ArgumentException("Invalid item locale.");
@@ -43,12 +43,15 @@ public sealed class CraftingRepository(string connectionString, string locale)
     { using var cmd = new MySqlCommand(sql, db, tx); using var r = cmd.ExecuteReader(); while (r.Read()) read(r); }
     private static void CheckSchema(MySqlConnection db, MySqlTransaction tx)
     {
-        foreach (string t in Tables) Rows(db, tx, $"SELECT 1 FROM `{t}` LIMIT 0", _ => { });
+        try { foreach (string t in Tables) Rows(db, tx, $"SELECT 1 FROM `{t}` LIMIT 0", _ => { }); }
+        catch (MySqlException e) when (e.Number==1146) {
+            throw new InvalidOperationException("Professions content is incomplete. Apply the game's migrations through 0044 before opening this editor; it never creates or changes schema.",e);
+        }
         var found = new Dictionary<string, string>();
         Rows(db, tx, "SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", Tables.Select(t => "'" + t + "'")) + ")", r => found[r.GetString(0)] = r.GetString(1));
         if (Tables.Any(t => !found.TryGetValue(t, out string? e) || e != "InnoDB"))
-            throw new InvalidOperationException($"Professions require all {Tables.Length} InnoDB content tables. Apply the game's migrations through 0043; this editor never creates or changes schema.");
+            throw new InvalidOperationException($"Professions require all {Tables.Length} InnoDB content tables. Apply the game's migrations through 0044; this editor never creates or changes schema.");
         try {
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_crafting_mastery LIMIT 0",_=>{});
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_gathering_material LIMIT 0",_=>{});
@@ -101,6 +104,11 @@ public sealed class CraftingRepository(string connectionString, string locale)
         var ranks=c.Ranks.ToDictionary(r => r.Id);
         Rows(db, tx, Lock("SELECT a_rank_index,a_slot,a_option_type,a_value FROM t_crafting_master_rank_bonus ORDER BY a_rank_index,a_slot"), r => {
             var rank=ranks[r.GetInt32(0)]; CheckSlot(rank.Bonuses.Count,r.GetInt32(1)); rank.Bonuses.Add(new() { Effect=r.GetInt32(2), Amount=r.GetInt32(3) }); });
+        Rows(db, tx, Lock("SELECT a_rank_index,a_perk_type,a_enabled FROM t_crafting_master_rank_perk ORDER BY a_rank_index,a_perk_type"), r => {
+            int type=r.GetInt32(1), enabled=r.GetInt32(2);
+            if (!ranks.TryGetValue(r.GetInt32(0),out var rank) || !ArtisanPerks.Names.ContainsKey(type) || enabled is <0 or >1 || rank.Perks.Any(p=>p.Type==type))
+                throw new InvalidOperationException("Invalid Artisan perk mapping. Restore a supported unique perk, existing rank ID and enabled value 0 or 1 before editing.");
+            rank.Perks.Add(new() { Type=type,Enabled=enabled==1 }); });
         int[] rebirth = [846,2667,3218,4933,5958,7056,9194,9195,9196]; // Item.cpp engine exclusions.
         Rows(db, tx, "SELECT a_index,COALESCE(a_name_"+language+",''),a_enable,a_type_idx,a_subtype_idx,a_flag,a_weight,a_texture_id,a_texture_row,a_texture_col,a_wearing FROM t_item ORDER BY a_index" + (locked ? " LOCK IN SHARE MODE" : ""), r => {
             int id=r.GetInt32(0); c.Items[id]=new(id,r.GetString(1),r.GetBoolean(2),r.GetInt32(3),r.GetInt32(4),r.GetInt64(5),r.GetInt32(6),r.GetInt32(7),r.GetInt32(8),r.GetInt32(9),rebirth.Contains(id),r.GetInt32(10)); });
@@ -163,6 +171,9 @@ public sealed class CraftingRepository(string connectionString, string locale)
                 Execute(db,tx,"INSERT INTO t_crafting_master_rank(a_index,a_order,a_name,a_required_mastered,a_emblem,a_enable) VALUES(@p0,@p1,@p2,@p3,@p4,@p5) ON DUPLICATE KEY UPDATE a_order=VALUES(a_order),a_name=VALUES(a_name),a_required_mastered=VALUES(a_required_mastered),a_emblem=VALUES(a_emblem),a_enable=VALUES(a_enable)",r.Id,r.Order,r.Name,r.RequiredMastered,r.Emblem,r.Enabled);
                 Execute(db,tx,"DELETE FROM t_crafting_master_rank_bonus WHERE a_rank_index=@p0",r.Id);
                 WriteBonuses(db,tx,"t_crafting_master_rank_bonus",r.Id,r.Bonuses);
+                Execute(db,tx,"DELETE FROM t_crafting_master_rank_perk WHERE a_rank_index=@p0",r.Id);
+                foreach (var perk in r.Perks.OrderBy(p=>p.Type))
+                    Execute(db,tx,"INSERT INTO t_crafting_master_rank_perk(a_rank_index,a_perk_type,a_enabled) VALUES(@p0,@p1,@p2)",r.Id,perk.Type,perk.Enabled);
             }
             ProfessionStorage.Save(db,tx,original.Professions,edited.Professions);
             tx.Commit();
