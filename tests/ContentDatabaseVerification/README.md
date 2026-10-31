@@ -34,3 +34,11 @@ Construction adds one authored table (`t_alchemy_facility_ingredient`), bringing
 
 The Artisan nonstat-perk table is authored content; including it increases the
 reviewed recording set to 125. Earned ranks remain player-owned and excluded.
+
+
+The Transmutation extension raises the reviewed recording set to 130. All five
+authored Crucible tables are included. Separate secret wallet, queue, receipt and
+delivery sentinels in ep4_db cannot be read by the restricted snapshot account or
+appear in any exported seed.
+
+The Transmutation recording/export run passes 37 checks across 130 authored tables.

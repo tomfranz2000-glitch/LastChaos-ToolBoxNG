@@ -15,6 +15,8 @@ public static class ContentRecordingPolicy
     // even if a future policy edit accidentally adds one to the content list.
     public static bool IsPlayerOwnedAlchemyTable(string table) => table is
         "t_alchemy_infusion_unlock" or "t_alchemy_work_order" or "t_alchemy_facility_unlock";
+    public static bool IsPlayerOwnedProfessionTable(string table) => IsPlayerOwnedAlchemyTable(table)
+        || table.StartsWith("t_transmutation_",StringComparison.Ordinal) && table is not ("t_transmutation_settings" or "t_transmutation_facility" or "t_transmutation_facility_ingredient" or "t_transmutation_offer" or "t_transmutation_item_rule");
     // Existing optional Toolbox variants can write these schema-only/custom
     // sources. They need explicit classification, seeds and a policy update
     // before they can be recorded; absence or empty tables are harmless.
@@ -138,6 +140,11 @@ t_string
 t_title
 t_toolversion
 t_trigger_set
+t_transmutation_settings
+t_transmutation_facility
+t_transmutation_facility_ingredient
+t_transmutation_offer
+t_transmutation_item_rule
 t_zonedata
 """;
     public static IReadOnlyList<ContentTable> AllowlistedTables { get; } =
@@ -157,8 +164,8 @@ t_zonedata
 
     public static void ValidateCheckout(string checkout)
     {
-        if (AllowlistedTables.Any(table => IsPlayerOwnedAlchemyTable(table.Table)))
-            throw new InvalidOperationException("Character Alchemy ownership and receipts cannot be recorded as authored content.");
+        if (AllowlistedTables.Any(table => IsPlayerOwnedProfessionTable(table.Table)))
+            throw new InvalidOperationException("Character profession points, ownership, paid orders and receipts cannot be recorded as authored content.");
         var approved = AllowlistedTables.Select(t => t.SeedRelativePath).ToHashSet(StringComparer.Ordinal);
         string seeds = Path.Combine(checkout, "x64-server", "db", "seeds");
         if (!Directory.Exists(seeds)) throw new InvalidOperationException("Select the game checkout containing x64-server/db/seeds.");

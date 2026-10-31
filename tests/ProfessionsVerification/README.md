@@ -51,3 +51,14 @@ Construction coverage includes the real 0043 schema, separate build/brewing swit
 Artisan perk coverage checks real Rank I content, disabled and reassigned mappings,
 draft JSON/fingerprints, unknown/duplicate rejection, concurrent edits/export locks,
 and late SQL rollback while all inventory/progression/ownership sentinels stay intact.
+
+
+The Transmutation extension applies actual migration 0045 and covers 35 authored
+profession tables. The fixture creates independent wallet/building, queued batch,
+claim receipt and delivery sentinels. It exercises real normal Save/reload, exact
+field coverage, quoted/Unicode text, point formula/cap, stable rank selection,
+output/exception removal, disabled outputs, item references, concurrent changes,
+export locks and a late SQL constraint failure after earlier settings/offer edits.
+No character data may change through successful or failed content saves.
+
+The coordinated Transmutation run passes 111 database checks across 35 authored profession tables.

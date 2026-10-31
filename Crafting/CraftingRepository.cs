@@ -45,13 +45,13 @@ public sealed class CraftingRepository(string connectionString, string locale)
     {
         try { foreach (string t in Tables) Rows(db, tx, $"SELECT 1 FROM `{t}` LIMIT 0", _ => { }); }
         catch (MySqlException e) when (e.Number==1146) {
-            throw new InvalidOperationException("Professions content is incomplete. Apply the game's migrations through 0044 before opening this editor; it never creates or changes schema.",e);
+            throw new InvalidOperationException("Professions content is incomplete. Apply the game's migrations through 0045 before opening this editor; it never creates or changes schema.",e);
         }
         var found = new Dictionary<string, string>();
         Rows(db, tx, "SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (" +
             string.Join(",", Tables.Select(t => "'" + t + "'")) + ")", r => found[r.GetString(0)] = r.GetString(1));
         if (Tables.Any(t => !found.TryGetValue(t, out string? e) || e != "InnoDB"))
-            throw new InvalidOperationException($"Professions require all {Tables.Length} InnoDB content tables. Apply the game's migrations through 0044; this editor never creates or changes schema.");
+            throw new InvalidOperationException($"Professions require all {Tables.Length} InnoDB content tables. Apply the game's migrations through 0045; this editor never creates or changes schema.");
         try {
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_crafting_mastery LIMIT 0",_=>{});
             Rows(db,tx,"SELECT a_bronze_xp_required,a_silver_xp_required FROM t_gathering_material LIMIT 0",_=>{});

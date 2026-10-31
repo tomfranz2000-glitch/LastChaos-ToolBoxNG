@@ -52,6 +52,13 @@ public sealed partial class CraftingMasteryEditor
         Entry(infusions,"Permanent effects",()=>NavigateProfessionPage(5,InfusionSchema.Effects));
         Entry(infusions,"Alchemy station",()=>NavigateProfessionPage(5,InfusionSchema.Facility));
         Entry(infusions,"Construction costs",()=>NavigateProfessionPage(5,InfusionSchema.ConstructionCosts));
+        var transmutation=navigation.Nodes.Add("Transmutation");transmutation.Name="Transmutation";
+        transmutation.Tag=(Action)(()=>NavigateProfessionPage(6,TransmutationSchema.Offers));
+        Entry(transmutation,"Upgrading items",()=>NavigateProfessionPage(6,TransmutationSchema.Offers));
+        Entry(transmutation,"Reservoir and equipment value",()=>NavigateProfessionPage(6,TransmutationSchema.Settings));
+        Entry(transmutation,"Equipment exceptions",()=>NavigateProfessionPage(6,TransmutationSchema.ItemRules));
+        Entry(transmutation,"Transmutation Crucible",()=>NavigateProfessionPage(6,TransmutationSchema.Facility));
+        Entry(transmutation,"Crucible construction costs",()=>NavigateProfessionPage(6,TransmutationSchema.ConstructionCosts));
         var gather=navigation.Nodes.Add("Gathering");
         foreach(var pair in new[]{(1,"Mining"),(2,"Herbalism"),(3,"Fishing"),(4,"Wave Absorption")}) {
             int p=pair.Item1;Entry(gather,pair.Item2,()=>NavigateProfession(p));
@@ -76,7 +83,7 @@ public sealed partial class CraftingMasteryEditor
     private void RefreshHome()
     {
         if(homePage==null)return;
-        homeSummary.Text=loaded?$"{catalog.Recipes.Count:N0} recipes • {catalog.Gathering.Count:N0} resource masteries • {catalog.Ranks.Count:N0} Artisan Ranks\r\n{catalog.Professions.Rows("t_gathering_node").Count:N0} Mining/Wave sources • {catalog.Professions.Rows("t_herb_population").Count:N0} herb populations • {catalog.Professions.Rows("t_fishing_water").Count:N0} fishing waters":"Loading profession content…";
+        homeSummary.Text=loaded?$"{catalog.Recipes.Count:N0} recipes • {catalog.Gathering.Count:N0} resource masteries • {catalog.Ranks.Count:N0} Artisan Ranks\r\n{catalog.Professions.Rows("t_gathering_node").Count:N0} Mining/Wave sources • {catalog.Professions.Rows("t_herb_population").Count:N0} herb populations • {catalog.Professions.Rows("t_fishing_water").Count:N0} fishing waters\r\n{catalog.Professions.Rows(TransmutationSchema.Offers).Count:N0} Transmutation outputs • {catalog.Professions.Rows(TransmutationSchema.Settings).FirstOrDefault()?.Int("a_capacity")??0:N0} point reservoir capacity":"Loading profession content…";
         if(loaded)ShowApplyGuide(original,catalog);
     }
 
@@ -89,7 +96,7 @@ public sealed partial class CraftingMasteryEditor
         bool ownership=Owners(before)!=Owners(after);
         bool herbs=new[]{"t_herb_population","t_herb_spawn_point","t_herb_loot"}.Any(ChangedTable);
         applyNotes.Text="APPLYING SAVED CONTENT\r\n\r\n"+
-            "Crafting recipes/settings: close and reopen /craft.\r\nResource mastery, Mining/Wave rules and Fishing: close and reopen /gather.\r\nArtisan Rank definitions: reopen /artisan.\r\nInfusions: reopen the Alchemy station. Station placement/model changes may require re-entering the private hall.\r\n\r\n"+
+            "Crafting recipes/settings: close and reopen /craft.\r\nResource mastery, Mining/Wave rules and Fishing: close and reopen /gather.\r\nArtisan Rank definitions: reopen /artisan.\r\nInfusions: reopen the Alchemy station. Station placement/model changes may require re-entering the private hall.\r\nTransmutation: reopen the Crucible or plot. Paid batches keep accepted terms; point-cap changes never delete stored points.\r\n\r\n"+
             (ownership?"THIS DRAFT changes enabled herb population ownership. A GameServer restart is required after Save.\r\n":
              herbs?"THIS DRAFT changes existing herb rules/sites/loot. After Save, an administrator must use /herbpop reload.\r\n":
              "Herb rules/sites/loot: an administrator uses /herbpop reload. Adding/removing an enabled population or changing its zone/NPC requires GameServer restart.\r\n")+

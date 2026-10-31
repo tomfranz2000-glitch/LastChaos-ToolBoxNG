@@ -32,3 +32,13 @@ retirement copy, cumulative summary, JSON/fingerprints and a minimum-size captur
 
 The complete Artisan-perk extension passes **150 checks**; screenshot evidence
 includes the separate Rank settings and Rewards tabs at 1100 by 720.
+
+
+Transmutation coverage uses its actual authored content and all five pages. It
+checks numeric bounds, safe upgrade-material outputs, equipment safety and optional
+exceptions, separate building/activity switches, model paths, point/time previews,
+real named rank and native-unit controls, canonical draft restoration, all new
+recording/player boundaries, and Rank II's facility-reward link. Captures cover every
+page at 1420×900 and 1100×720, including an empty exception list.
+
+The complete Transmutation UI run passes 212 checks; the final runtime-eligibility alignment also passes 35 focused rules checks. Screenshots and result receipts remain in ignored validation output.

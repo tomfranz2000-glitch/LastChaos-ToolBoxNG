@@ -1,4 +1,5 @@
 using LastChaos_ToolBoxNG.Crafting;
+using LastChaos_ToolBoxNG.Professions;
 
 namespace LastChaos_ToolBoxNG;
 
@@ -197,13 +198,26 @@ public sealed partial class CraftingMasteryEditor
         perks.Controls.Add(Label("Failed upgrades may still lower the upgrade level.\r\nUpgrade costs and success chances are unchanged."));
         var bonuses=BonusGrid(r.Bonuses);
         rewards.Controls.Add(Vertical(perks,Label("STAT BONUSES"),bonuses));
-        pages.SelectedIndex=Math.Clamp(selectedPage,0,1);
+        var facilities=RankFacilities(r.Id).ToList();
+        if(facilities.Count>0) {
+            var facilityPage=new TabPage("Facility construction");var facilityFields=Fields();facilityPage.Controls.Add(facilityFields);pages.TabPages.Add(facilityPage);
+            facilityFields.Controls.Add(Label("Earning this rank grants permission to construct these permanent workshops. Construction materials are configured on each facility page. Built ownership is retained after later rank or cost edits."));
+            foreach(var facility in facilities) {int profession=facility.Profession;string table=facility.Table;facilityFields.Controls.Add(Label("Allows construction of "+facility.Name));facilityFields.Controls.Add(Button("Edit "+facility.Name,()=>NavigateProfessionPage(profession,table)));}
+        }
+        pages.SelectedIndex=Math.Clamp(selectedPage,0,pages.TabPages.Count-1);
     }
     private void UpdateRankSummary()
     {
         if(selectedRank is MastersRank r && rankSummary is { IsDisposed:false })
             rankSummary.Text="Cumulative through this rank: "+CraftingRules.Rewards(catalog.Ranks.Where(n=>n.Order<=r.Order).SelectMany(n=>n.Bonuses))
-                +"\r\nPerks through this rank: "+(string.Join("; ",ArtisanPerks.Active(catalog.Ranks.Where(n=>n.Order<=r.Order))) is {Length:>0} perks?perks:"None");
+                +"\r\nPerks through this rank: "+(string.Join("; ",ArtisanPerks.Active(catalog.Ranks.Where(n=>n.Order<=r.Order))) is {Length:>0} perks?perks:"None")
+                +"\r\nConstruction unlocked by this rank: "+(string.Join("; ",RankFacilities(r.Id).Select(f=>f.Name)) is {Length:>0} facilities?facilities:"None");
+    }
+    private IEnumerable<(int Profession,string Table,string Name)> RankFacilities(int rank)
+    {
+        foreach(var definition in new[]{(5,InfusionSchema.Facility),(6,TransmutationSchema.Facility)})
+            foreach(var facility in catalog.Professions.Rows(definition.Item2).Where(row=>row.Int("a_required_artisan_rank")==rank))
+                yield return (definition.Item1,definition.Item2,facility.Get("a_name"));
     }
     private void NewRank(bool copy=false)
     {

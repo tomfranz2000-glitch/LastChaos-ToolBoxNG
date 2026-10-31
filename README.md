@@ -74,3 +74,37 @@ The unfinished Quest Editor is unavailable; its copied write handlers targeted r
 
 ## Strings & Lods Exporter
 ![3](https://github.com/user-attachments/assets/cdcc24ea-4b86-4bc7-8a36-ca8cd1a77a2e)
+
+
+## Transmutation Crucible
+
+Open **Professions Editor → Transmutation** after applying game migration **0045**.
+The editor never creates database schema or changes character balances or queues.
+
+- **Upgrading items:** choose an ordinary upgrading material, output quantity,
+  point price and time per operation. The initial Heaven Stone offer costs 1,000
+  points and takes two minutes. The preview explains bulk cost and sequential time.
+  Paid batches keep their accepted item, price and duration after edits or removal.
+- **Reservoir and equipment value:** set the character point capacity and the
+  numerator/denominator of `floor(base equipment level × numerator / denominator)`.
+  The minimum is one point. An overflowing conversion is refused in full; lowering
+  capacity does not remove points already stored. The cap applies to unspent points.
+- **Equipment exceptions:** exclude an existing item, or override its point value.
+  A fixed value of zero uses the formula. Exceptions cannot enable unsafe equipment,
+  gathering tools, costumes, rented items or linked equipment. Enhancement gives no
+  extra points and is destroyed with the selected equipment.
+- **Crucible:** configure separate construction/activity switches, the named Artisan
+  Rank prerequisite, built/plot model paths, names, position, heading and use distance.
+  The initial construction requirement is permanent Rank ID 2, not display order 2.
+- **Construction costs:** edit up to eight different one-time materials. An empty
+  list permits free construction. Already-built workshops remain owned.
+
+The **Artisan Ranks** page shows facility construction rewards and links directly
+back to their settings. Reopen the Crucible/plot after Save; placement/model changes
+may require re-entering the private hall. New artwork needs normal client deployment.
+
+**Record Content Changes** includes all five authored `t_transmutation_*` tables:
+settings, facility, facility ingredients, offers and item exceptions. Character
+wallets, buildings, paid work orders, delivery records and receipts are explicitly
+excluded, including future unreviewed Transmutation tables. Exporting records content
+in the selected local Git checkout; it does not publish or push it.

@@ -35,7 +35,7 @@ public sealed partial class CraftingMasteryEditor
     private bool refreshingProfessionPages;
 
     private static string GatheringProfessionName(int id) => id switch
-    { 1 => "Mining", 2 => "Herbalism", 3 => "Fishing", 4 => "Wave Absorption", 5 => "Infusions", _ => "Gathering" };
+    { 1 => "Mining", 2 => "Herbalism", 3 => "Fishing", 4 => "Wave Absorption", 5 => "Infusions", 6 => "Transmutation", _ => "Gathering" };
 
     private void BuildProfessionPages()
     {
@@ -44,7 +44,8 @@ public sealed partial class CraftingMasteryEditor
             (2, [("t_gathering_settings","Skill rules"),("t_herb_population","Populations"),("t_herb_spawn_point","Candidate sites"),("t_herb_loot","Harvest drops")]),
             (3, [("t_fishing_settings","Skill and rod"),("t_fishing_water","Fishable waters"),("t_fishing_water_vertex","Water boundaries"),("t_fishing_loot","Catches")]),
             (4, [("t_gathering_settings","Skill rules"),("t_gathering_node","Wave sources"),("t_gathering_node_loot","Resource drops"),("t_gathering_tool","Tools")]),
-            (5, [(InfusionSchema.Offers,"Brewing recipes"),(InfusionSchema.Ingredients,"Extra ingredients"),(InfusionSchema.Consumables,"Permanent potions"),(InfusionSchema.Effects,"Permanent effects"),(InfusionSchema.Facility,"Station"),(InfusionSchema.ConstructionCosts,"Construction costs")])
+            (5, [(InfusionSchema.Offers,"Brewing recipes"),(InfusionSchema.Ingredients,"Extra ingredients"),(InfusionSchema.Consumables,"Permanent potions"),(InfusionSchema.Effects,"Permanent effects"),(InfusionSchema.Facility,"Station"),(InfusionSchema.ConstructionCosts,"Construction costs")]),
+            (6, [(TransmutationSchema.Offers,"Upgrading items"),(TransmutationSchema.Settings,"Reservoir and value"),(TransmutationSchema.ItemRules,"Equipment exceptions"),(TransmutationSchema.Facility,"Crucible"),(TransmutationSchema.ConstructionCosts,"Construction costs")])
         };
         foreach (var definition in definitions)
         {
@@ -79,13 +80,13 @@ public sealed partial class CraftingMasteryEditor
             List = list, Detail = detail, Search = searchBox, Parent = parentBox, Validation = validation };
         professionBrowsers.Add((professionId, table.Name), browser);
         var tools = Flow();
-        bool singleton = table.Name is "t_gathering_settings" or "t_fishing_settings" or InfusionSchema.Facility;
+        bool singleton = table.Name is "t_gathering_settings" or "t_fishing_settings" or InfusionSchema.Facility or TransmutationSchema.Facility or TransmutationSchema.Settings;
         if (!singleton)
         {
             tools.Controls.AddRange([Button("New…", () => NewProfessionEntry(browser, false)),
                 Button("Duplicate…", () => NewProfessionEntry(browser, true))]);
             if (table.Fields.Any(f => f.Column is "a_enable" or "a_enabled"))
-                tools.Controls.Add(Button("Retire / Enable", () => ToggleProfessionEntry(browser)));
+                tools.Controls.Add(Button(table.Name==TransmutationSchema.ItemRules?"Exclude / Allow":"Retire / Enable", () => ToggleProfessionEntry(browser)));
             tools.Controls.Add(Button(IsDurableProfessionTable(table.Name) ? "Discard new" : "Remove", () => RemoveProfessionEntry(browser)));
         }
         if (table.Fields.Any(f => f.Column is "a_slot" or "a_vertex_index"))
@@ -94,7 +95,7 @@ public sealed partial class CraftingMasteryEditor
             tools.Controls.Add(Button("Edit on map…", () => EditProfessionMap(browser)));
         if (table.Name == "t_gathering_profile")
             tools.Controls.Add(Button("Import model profile…", () => ImportProfessionProfile(browser)));
-        if (professionId != 5) tools.Controls.Add(Button("Balance / timing preview…", () => { if (loaded) RunProfessionAction(() => ProfessionPreviews.Show(this, catalog, ProfessionPreviewSource(browser))); }));
+        if (professionId < 5) tools.Controls.Add(Button("Balance / timing preview…", () => { if (loaded) RunProfessionAction(() => ProfessionPreviews.Show(this, catalog, ProfessionPreviewSource(browser))); }));
         split.Panel1.Controls.Add(Vertical(filters, tools, list));
         split.Panel2.Controls.Add(Vertical(detail, validation));
         // Detail is the expanding element, while the validation block remains below it.
@@ -156,7 +157,7 @@ public sealed partial class CraftingMasteryEditor
         browser.Binding = true;
         try
         {
-            var choices = new List<ProfessionChoice> { new(0, browser.Table.Name==InfusionSchema.Ingredients ? "All brewing recipes" : browser.Table.Name==InfusionSchema.ConstructionCosts ? "All stations" : browser.Profession==5 ? "All permanent effects" : "All sources") };
+            var choices = new List<ProfessionChoice> { new(0, browser.Table.Name==InfusionSchema.Ingredients ? "All brewing recipes" : browser.Table.Name is InfusionSchema.ConstructionCosts or TransmutationSchema.ConstructionCosts ? "All stations" : browser.Profession==5 ? "All permanent effects" : "All sources") };
             choices.AddRange(ParentRows(parent.ReferenceTable, browser.Profession)
                 .Select(r => new ProfessionChoice(r.Int("a_index"), DescribeProfessionRow(parent.ReferenceTable, r))));
             browser.Parent.DataSource = choices;
@@ -180,7 +181,7 @@ public sealed partial class CraftingMasteryEditor
             .Select(r => new ProfessionListEntry(r, r.Key(browser.Table), DescribeProfessionRow(browser.Table.Name, r),
                 ProfessionRowSummary(browser.Table.Name, r), ProfessionEntryState(browser.Table.Name,r)))
             .Where(e => search.Length == 0 || (e.Identity + " " + e.Name + " " + e.Summary).Contains(search, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(e => browser.Table.Name==InfusionSchema.Offers ? e.Row.Int("a_sort") : e.Row.Int("a_index")).ThenBy(e=>e.Row.Int("a_index")).ThenBy(e => e.Row.Int("a_slot")).ThenBy(e => e.Row.Int("a_vertex_index")).ToList();
+            .OrderBy(e => browser.Table.Name is InfusionSchema.Offers or TransmutationSchema.Offers ? e.Row.Int("a_sort") : e.Row.Int("a_index")).ThenBy(e=>e.Row.Int("a_index")).ThenBy(e => e.Row.Int("a_slot")).ThenBy(e => e.Row.Int("a_vertex_index")).ToList();
         browser.Binding = true;
         try
         {
@@ -195,7 +196,10 @@ public sealed partial class CraftingMasteryEditor
     }
 
     private string NpcName(int id) => catalog.Professions.Npcs.TryGetValue(id, out var npc) ? npc.Name : "Missing NPC";
-    private static string ProfessionEntryState(string table,ProfessionRow row) => table==InfusionSchema.Facility
+    private static string ProfessionEntryState(string table,ProfessionRow row) => table==TransmutationSchema.Facility
+        ? row.Int("a_construction_enabled")==1 ? row.Enabled ? "Build & use" : "Build only" : row.Enabled ? "Use only" : "Paused"
+        : table==TransmutationSchema.ItemRules ? row.Enabled ? "Formula / override" : "Excluded"
+        : table==InfusionSchema.Facility
         ? row.Int("a_construction_enabled")==1 ? row.Enabled ? "Build & brew" : "Build only" : row.Enabled ? "Brew only" : "Paused"
         : table is InfusionSchema.Effects or InfusionSchema.Consumables ? "Permanent" : row.Enabled ? "Enabled" : "Retired";
     private string ZoneName(int id) => catalog.Professions.Zones.GetValueOrDefault(id, "Missing zone");
@@ -203,7 +207,10 @@ public sealed partial class CraftingMasteryEditor
         InfusionSchema.Effects => catalog.ItemName(row.Int("a_item_index")),
         InfusionSchema.Offers => catalog.ItemName(row.Int("a_output_item_index")),
         InfusionSchema.Consumables => catalog.ItemName(row.Int("a_item_index")),
-        InfusionSchema.Facility => row.Get("a_name"),
+        InfusionSchema.Facility or TransmutationSchema.Facility => row.Get("a_name"),
+        TransmutationSchema.Settings => "Stored points and equipment value",
+        TransmutationSchema.Offers => catalog.ItemName(row.Int("a_output_item_index")),
+        TransmutationSchema.ItemRules => catalog.ItemName(row.Int("a_item_index")),
         "t_gathering_settings" => GatheringProfessionName(row.Int("a_index")) + " progression",
         "t_fishing_settings" => "Fishing progression and carried rod",
         "t_gathering_node" => NpcName(row.Int("a_npc_index")),
@@ -227,6 +234,11 @@ public sealed partial class CraftingMasteryEditor
             return $"×{row.Int("a_item_count")} • {chance:0.##}%";
         }
         return table switch {
+            TransmutationSchema.Settings => $"{row.Int("a_capacity"):N0} points maximum • level × {row.Int("a_points_numerator")} / {row.Int("a_points_denominator")}",
+            TransmutationSchema.Offers => $"{row.Int("a_point_cost"):N0} points • {row.Int("a_output_count"):N0} items • {TimeSpan.FromSeconds(Math.Max(0,row.Int("a_duration_sec"))).TotalMinutes:0.##} min",
+            TransmutationSchema.ItemRules => !row.Enabled ? "Excluded from conversion" : row.Int("a_points_override")==0 ? "Uses level formula" : $"{row.Int("a_points_override"):N0} points per item",
+            TransmutationSchema.Facility => $"Construction {(row.Int("a_construction_enabled")==1?"on":"off")} • new activity {(row.Enabled?"on":"off")} • private hall",
+            TransmutationSchema.ConstructionCosts => $"×{row.Int("a_count"):N0} • Crucible #{row.Int("a_facility_index")}",
             InfusionSchema.Effects => $"{catalog.Professions.Infusions.Potions.GetValueOrDefault(row.Int("a_item_index"))?.SkillName??"Skill #"+row.Int("a_skill_index")} • level {row.Int("a_skill_level")}",
             InfusionSchema.Offers => $"{row.Int("a_output_count"):N0} finished • {TimeSpan.FromSeconds(Math.Max(0,row.Int("a_duration_sec"))).TotalHours:0.##} h • {row.Int("a_required_count"):N0} original potions",
             InfusionSchema.Consumables => InfusionPotionName(row.Int("a_effect_index")),
@@ -249,8 +261,10 @@ public sealed partial class CraftingMasteryEditor
         ClearPanel(browser.Detail);
         if (browser.Selected is not ProfessionRow row)
         {
-            browser.Detail.Controls.Add(Label("No entries match this view. Select New to add content, or change the source/search filter."));
-            UpdateProfessionValidation(browser); return;
+            var empty=Label("No entries match this view. Select New to add content, or change the source/search filter.");
+            empty.AutoSize=false;empty.Dock=DockStyle.Top;empty.Height=72;empty.Padding=new(8);
+            browser.Detail.AutoScrollPosition=Point.Empty;browser.Detail.Controls.Add(empty);
+            SizeProfessionFields(browser);UpdateProfessionValidation(browser); return;
         }
         var fields = Fields(); fields.AutoScroll = false; fields.AutoSize = true; fields.Dock = DockStyle.Top;
         browser.Detail.Controls.Add(fields);
@@ -274,12 +288,15 @@ public sealed partial class CraftingMasteryEditor
             quick.Controls.Add(Button("Effect definition…",()=>NavigateInfusionEffect(row.Int("a_effect_index"))));
             fields.Controls.Add(Label("The immutable effect mapping supplies the original potion's skill and level. Keep the finished item's ordinary skill fields at zero so it cannot fall back to a timed effect."));
         }
-        if(browser.Table.Name==InfusionSchema.Facility) {
-            quick.Controls.Add(Button("Construction costs…",()=>SelectProfessionChild(5,InfusionSchema.ConstructionCosts,row.Int("a_index"))));
-            var costs=catalog.Professions.Rows(InfusionSchema.ConstructionCosts).Where(r=>r.Int("a_facility_index")==row.Int("a_index")).OrderBy(r=>r.Int("a_slot")).ToList();
+        if(browser.Table.Name is InfusionSchema.Facility or TransmutationSchema.Facility) {
+            int facilityProfession=browser.Table.Name==TransmutationSchema.Facility?6:5;
+            string costTable=facilityProfession==6?TransmutationSchema.ConstructionCosts:InfusionSchema.ConstructionCosts;
+            quick.Controls.Add(Button("Construction costs…",()=>SelectProfessionChild(facilityProfession,costTable,row.Int("a_index"))));
+            var costs=catalog.Professions.Rows(costTable).Where(r=>r.Int("a_facility_index")==row.Int("a_index")).OrderBy(r=>r.Int("a_slot")).ToList();
             string summary=costs.Count==0?"Free construction":string.Join(", ",costs.Select(r=>$"{r.Int("a_count"):N0} × {catalog.ItemName(r.Int("a_item_index"))}"));
             fields.Controls.Add(Label("One-time build cost: "+summary+". Edit these materials with the button below."));
         }
+        AddTransmutationSummary(fields,quick,browser,row);
         if (row.Int("a_npc_index") > 0)
             quick.Controls.Add(Button("Open NPC / static placement…", () => new NPCEditor(main, row.Int("a_npc_index")).Show(this)));
         if (browser.Table.Name == "t_gathering_node")
@@ -298,7 +315,7 @@ public sealed partial class CraftingMasteryEditor
         if (quick.Controls.Count > 0) fields.Controls.Add(quick); else quick.Dispose();
 
         var effective = browser.Table.Fields.Where(f => !InactiveProfessionField(browser, f)).ToList();
-        foreach (var grouping in effective.GroupBy(f => f.Group).OrderBy(group => browser.Table.Name==InfusionSchema.Facility
+        foreach (var grouping in effective.GroupBy(f => f.Group).OrderBy(group => browser.Table.Name is InfusionSchema.Facility or TransmutationSchema.Facility
             ? group.Key switch { "Availability"=>0,"Unbuilt plot"=>1,"General"=>2,_=>3 } : 0))
             AddProfessionFieldGroup(fields, browser, row, grouping.Key, grouping, false);
         var reserved = browser.Table.Fields.Where(f => InactiveProfessionField(browser, f)).ToList();
@@ -325,6 +342,7 @@ public sealed partial class CraftingMasteryEditor
         {
         int width = Math.Max(320, browser.Detail.ClientSize.Width - 38);
         browser.Validation.MaximumSize = new(Math.Max(320, browser.Detail.ClientSize.Width), 0);
+        foreach(var label in browser.Detail.Controls.OfType<Label>())label.MaximumSize=new(width,0);
         foreach (var outer in browser.Detail.Controls.OfType<FlowLayoutPanel>())
         {
             outer.MaximumSize = new(width + 16, 0);
@@ -370,7 +388,7 @@ public sealed partial class CraftingMasteryEditor
             var line = new FlowLayoutPanel { Name = "ProfessionFieldRow", AutoSize = true, WrapContents = true, Margin = new(2, 3, 2, 3), MaximumSize = new(650, 0) };
             var caption = Label(field.Column == "a_profession" ? "Profession" : field.Label); caption.MaximumSize = new(185, 0); caption.MinimumSize = new(185, 0);
             line.Controls.Add(caption);
-            bool keyLocked = browser.Table.Name is "t_gathering_settings" or "t_fishing_settings"
+            bool keyLocked = browser.Table.Name is "t_gathering_settings" or "t_fishing_settings" or TransmutationSchema.Settings or TransmutationSchema.Facility
                 ? field.Column == "a_index"
                 : IsDurableProfessionTable(browser.Table.Name) && browser.Table.Keys.Contains(field.Column);
             bool effectIdentity = browser.Table.Name==InfusionSchema.Effects && (field.Column is "a_item_index" or "a_skill_index" or "a_skill_level")
@@ -518,6 +536,9 @@ public sealed partial class CraftingMasteryEditor
     private void ProfessionEntryEdited(ProfessionBrowser browser)
     {
         Changed();
+        if(browser.Selected is { } transmutationRow)
+            foreach(var label in Descendants(browser.Detail).OfType<Label>().Where(c=>c.Name=="TransmutationExplanation"))
+                label.Text=TransmutationSummary(browser.Table.Name,transmutationRow);
         if (browser.List.DataSource is BindingList<ProfessionListEntry> entries)
         {
             browser.Binding = true;
@@ -550,7 +571,9 @@ public sealed partial class CraftingMasteryEditor
         RefreshProfessionBrowser(browser);
     }
     private string InfusionPotionName(int effectId) => catalog.Professions.Rows(InfusionSchema.Effects).FirstOrDefault(r=>r.Int("a_index")==effectId) is { } effect ? catalog.ItemName(effect.Int("a_item_index")) : "Missing permanent effect #"+effectId;
-    private static string ProfessionApplyGuidance(ProfessionBrowser browser) => browser.Profession == 5
+    private static string ProfessionApplyGuidance(ProfessionBrowser browser) => browser.Profession == 6
+        ? "Apply: Save, then reopen the Transmutation Crucible or plot. Model/placement changes may require re-entering the hall; new artwork needs client deployment. Construction rank and costs apply once. Paid orders retain their original prices, products and times. Stored points, buildings, queued work and claim receipts are never exported."
+        : browser.Profession == 5
         ? "Apply: Save, then reopen the Alchemy station/plot. Construction costs and rank apply once when building; existing built ownership is retained. Brewing enabled controls new brews independently. Placement/model changes may require re-entering the private hall; new artwork needs client asset deployment. Accepted brewing jobs keep their original terms. Character station/effect unlocks, jobs and receipts are never exported."
         : browser.Profession == 2
         ? "Apply: Save, then reopen /gather for skill/loot/mastery changes. Use the admin command /herbpop reload for population timing and candidate-site edits. Enabling a new population or changing its zone/NPC ownership needs a GameServer restart."
@@ -584,6 +607,8 @@ public sealed partial class CraftingMasteryEditor
             var rows = catalog.Professions.Rows(definition.Name);
             if (definition.Name is InfusionSchema.Effects or InfusionSchema.Offers && rows.Count>=16)
                 throw new InvalidOperationException("The station supports at most 16 permanent effects and 16 offers, including retired offers.");
+            if(definition.Name==TransmutationSchema.Offers && rows.Count>=16)throw new InvalidOperationException("At most 16 Transmutation outputs are supported. Remove or edit an existing output; paid orders keep their saved terms.");
+            if(definition.Name==TransmutationSchema.ItemRules && rows.Count>=4096)throw new InvalidOperationException("At most 4096 equipment exceptions are supported.");
             if(definition.Name==InfusionSchema.Consumables && rows.Count>=64)throw new InvalidOperationException("At most 64 permanent potion mappings are supported; retain published mappings.");
             var parent = definition.Fields.FirstOrDefault(f => f.Kind == FieldKind.Parent);
             if(IsAlchemyCostTable(definition.Name) && parent!=null && browser.Parent.SelectedItem is ProfessionChoice selected && selected.Id>0 && rows.Count(r=>r.Int(parent.Column)==selected.Id)>=8)
@@ -627,8 +652,8 @@ public sealed partial class CraftingMasteryEditor
             if (definition.Fields.Any(f => f.Column == "a_item_index"))
             {
                 int? item = PickItem(row.Int("a_item_index")); if (!item.HasValue) return;
-                if (definition.Name is "t_gathering_tool" or InfusionSchema.Consumables && rows.Any(r => r.Int("a_item_index") == item))
-                    throw new InvalidOperationException("This tool already has a gathering definition. Select it in the list to edit it.");
+                if (definition.Name is "t_gathering_tool" or InfusionSchema.Consumables or TransmutationSchema.ItemRules && rows.Any(r => r.Int("a_item_index") == item))
+                    throw new InvalidOperationException("This item already has an entry in this section. Select it in the list to edit it.");
                 row.Set("a_item_index", item.Value);
                 if(definition.Name==InfusionSchema.Effects)DeriveInfusionSkill(row);
                 if (ResourceItemFor(definition.Name, row).HasValue) EnsureGatheringResource(item.Value, browser.Profession);
@@ -639,6 +664,7 @@ public sealed partial class CraftingMasteryEditor
                 row.Set("a_vertex_index", rows.Count(r => r.Int("a_water_index") == row.Int("a_water_index") && r.Int("a_polygon_index") == row.Int("a_polygon_index")));
             // A brand new source is configured as a draft before it can spawn.
             if (definition.Name is "t_gathering_node" or "t_herb_population" or "t_fishing_water") row.Set("a_enable", 0);
+            if(definition.Name==TransmutationSchema.Offers) {int? output=PickItem(row.Int("a_output_item_index"));if(!output.HasValue)return;row.Set("a_output_item_index",output.Value);}
             rows.Add(row);
             if (duplicate && template != null) CopyProfessionChildren(definition.Name, template, row);
             browser.Selected = row; Changed(); RefreshProfessionPages();
