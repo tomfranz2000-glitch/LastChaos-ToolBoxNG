@@ -11,7 +11,7 @@ docker compose -f tests/ContentDatabaseVerification/identity-mismatch.yml up -d 
 
 The primary fixture listens only on 127.0.0.1:33319. The identity-mismatch
 container exposes no port. Both use temporary in-memory database storage and the
-test-only password from their Compose files. The program recreates the 123
+test-only password from their Compose files. The program recreates the 124
 approved content tables with synthetic data. Tests cover snapshot coherence,
 legacy engines, player-data exclusion, blob/Unicode preservation, canonical
 mixed-field normalization, repeatability, empty content, cancellation, and
@@ -19,7 +19,7 @@ cleanup. It prints a prepared synthetic game checkout for integrated Git tests.
 
 After the full suite has prepared the fixture, optional `--targeted` verifies
 reader-pool cleanup and all six explicit unseeded-editor guards without resetting
-the main tables. `--compare-host` takes a read-only snapshot and compares all 123
+the main tables. `--compare-host` takes a read-only snapshot and compares all 124
 batch-exported files with the original host Docker-per-query transport using a
 frozen copy of the same canonical script (about three minutes).
 
@@ -29,3 +29,5 @@ After all dependent verification is finished:
 docker compose -f tests/ContentDatabaseVerification/compose.yml down -v
 docker compose -f tests/ContentDatabaseVerification/identity-mismatch.yml down -v
 ```
+
+Construction adds one authored table (`t_alchemy_facility_ingredient`), bringing the reviewed recording set to 124. A separate built-station secret sentinel in `ep4_db.t_alchemy_facility_unlock` must never appear in any of those exported files.

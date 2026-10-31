@@ -109,14 +109,27 @@ public static class InfusionRules
             if(!c.Items.TryGetValue(item,out var data)||!data.Enabled||!data.Stackable||data.Rebirth||item==19||productIds.Contains(item)||(data.Flags&((1L<<7)|(1L<<16)|(1L<<18)|(1L<<22)))!=0||p.Infusions.MaxUses.GetValueOrDefault(item,0)!=-1)
                 Error(target,"Choose an enabled ordinary stackable material with max use -1, excluding currency, permanent potions, mix, timed, zone-deletion and quest items.");
         }
+        var construction=p.Rows(InfusionSchema.ConstructionCosts);
+        foreach(var costs in construction.GroupBy(r=>r.Int("a_facility_index")))
+            if(costs.Count()>8||costs.Select(r=>r.Int("a_item_index")).Distinct().Count()!=costs.Count())
+                Error("Construction costs","Use at most eight different construction materials, with no duplicate items.");
+        foreach(var cost in construction) {
+            int item=cost.Int("a_item_index");string target="Construction cost #"+cost.Int("a_facility_index")+" / "+cost.Int("a_slot");
+            if(!facilities.Any(r=>r.Int("a_index")==cost.Int("a_facility_index")))Error(target,"Choose an existing station.");
+            if(!c.Items.TryGetValue(item,out var data)||!data.Enabled||!data.Stackable||data.Rebirth||item==19||productIds.Contains(item)||(data.Flags&((1L<<7)|(1L<<16)|(1L<<18)|(1L<<22)))!=0||p.Infusions.MaxUses.GetValueOrDefault(item,0)!=-1)
+                Error(target,"Choose an enabled ordinary stackable construction material with max use -1, excluding currency, permanent potions, mix, timed, zone-deletion and quest items.");
+        }
         if(facilities.Count!=1||facilities[0].Int("a_index")!=1)Error("Alchemy station","Exactly one station definition with ID 1 is required.");
         foreach(var facility in facilities) {
             int requiredRank=facility.Int("a_required_artisan_rank");
             if(requiredRank!=0&&!c.Ranks.Any(rank=>rank.Id==requiredRank))
                 Error("Alchemy station","Required Artisan Rank must be None or an existing permanent rank ID; retired ranks remain valid.");
-            if(facility.Get("a_name").EnumerateRunes().Count()>64)Error("Alchemy station","Station name must contain at most 64 characters.");
-            string model=facility.Get("a_model").Replace('\\','/');
-            if(!model.StartsWith("Data/",StringComparison.Ordinal)||!model.EndsWith(".smc",StringComparison.OrdinalIgnoreCase)||model.Contains(':')||model.Any(ch=>ch<32||ch>126)||model.Split('/').Any(s=>s.Length==0||s is "." or ".."))Error("Alchemy station","Model must be an ASCII relative Data/ path ending in .smc, without parent traversal.");
+            foreach(string column in new[]{"a_name","a_plot_name"})
+                if(facility.Get(column).EnumerateRunes().Count()>64)Error("Alchemy station",(column=="a_name"?"Station":"Plot")+" name must contain at most 64 characters.");
+            foreach(string column in new[]{"a_model","a_plot_model"}) {
+                string model=facility.Get(column).Replace('\\','/');
+                if(!model.StartsWith("Data/",StringComparison.Ordinal)||!model.EndsWith(".smc",StringComparison.OrdinalIgnoreCase)||model.Contains(':')||model.Any(ch=>ch<32||ch>126)||model.Split('/').Any(s=>s.Length==0||s is "." or ".."))Error("Alchemy station",(column=="a_model"?"Station":"Plot")+" model must be an ASCII relative Data/ path ending in .smc, without parent traversal.");
+            }
         }
         return issues;
     }

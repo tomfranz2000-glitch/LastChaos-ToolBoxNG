@@ -103,7 +103,7 @@ static class Program
             Check(fishing.Count == 0, "server-delivered profession tables and other schemas generate no client files");
             string configuredClient = host.pSettings.ClientPath;
             host.pSettings.ClientPath = "";
-            Check(ContentClientExports.GenerateAsync(host, (_, _) => throw new Exception("Unexpected read"), ["ep4_data.t_gathering_material","ep4_data.t_alchemy_offer","ep4_data.t_alchemy_consumable","ep4_data.t_alchemy_ingredient"], "").GetAwaiter().GetResult().Count == 0,
+            Check(ContentClientExports.GenerateAsync(host, (_, _) => throw new Exception("Unexpected read"), ["ep4_data.t_gathering_material","ep4_data.t_alchemy_offer","ep4_data.t_alchemy_consumable","ep4_data.t_alchemy_ingredient","ep4_data.t_alchemy_facility","ep4_data.t_alchemy_facility_ingredient"], "").GetAwaiter().GetResult().Count == 0,
                 "profession-only recording needs no configured client or output directory");
             host.pSettings.ClientPath = configuredClient;
             var npc = ContentClientExports.Plan(["ep4_data.t_npc"], "usa", ["USA"]);
