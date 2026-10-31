@@ -73,10 +73,25 @@ static class Program
         var c = Load(args[1]); var initial = c.Fingerprint();
         Check(!InfusionRules.Validate(c).Any(i=>i.Error),"authored infusion catalogue matches supported original potion effects");
         Check(c.Professions.Rows(InfusionSchema.Effects).Count==4&&c.Professions.Rows(InfusionSchema.Offers).All(r=>r.Int("a_required_count")==250),"four initial offers each consume 250 original potions");
-        Check(InfusionSchema.Tables.All(t=>ContentRecordingPolicy.AllowlistedTables.Any(a=>a.Key=="ep4_data/"+t.Name))&&!ContentRecordingPolicy.AllowlistedTables.Any(t=>t.Table is "t_alchemy_infusion_unlock" or "t_alchemy_work_order"),"content recording includes authored infusion tables and excludes player unlocks");
-        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==123,"recording policy exactly matches all 123 authored seed tables");
+        Check(InfusionSchema.Tables.All(t=>ContentRecordingPolicy.AllowlistedTables.Any(a=>a.Key=="ep4_data/"+t.Name))&&!ContentRecordingPolicy.AllowlistedTables.Any(t=>t.Table is "t_alchemy_infusion_unlock" or "t_alchemy_work_order" or "t_alchemy_facility_unlock"),"content recording includes authored infusion tables and excludes all character ownership/receipts");
+        Check(ContentRecordingPolicy.IsPlayerOwnedAlchemyTable("t_alchemy_facility_unlock")&&ContentRecordingPolicy.IsPlayerOwnedAlchemyTable("t_alchemy_work_order")&&!ContentRecordingPolicy.IsPlayerOwnedAlchemyTable(InfusionSchema.ConstructionCosts),"recording has an explicit protected player-table boundary separate from its authored allowlist");
+        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==124,"recording policy exactly matches all 124 authored seed tables");
         var copied=CraftingCatalog.Copy(c);Check(copied.Fingerprint()==initial&&!JsonSerializer.Serialize(copied).Contains("MagicIds"),"all authored infusion rows round-trip exactly without read-only metadata or progression");
         CraftingCatalog Draft() {var draft=CraftingCatalog.Copy(c);draft.Items=c.Items;draft.Professions.Infusions=c.Professions.Infusions;return draft;}
+        var buildCosts=c.Professions.Rows(InfusionSchema.ConstructionCosts);
+        Check(buildCosts.Count==2&&buildCosts.All(r=>r.Int("a_facility_index")==1&&r.Int("a_count")==1)&&buildCosts.Select(r=>r.Int("a_item_index")).Order().SequenceEqual(new[]{156,198}),"initial one-time construction costs are one Flawed Stone and one Herb Trunk");
+        var freeBuild=Draft();freeBuild.Professions.Rows(InfusionSchema.ConstructionCosts).Clear();
+        Check(!InfusionRules.Validate(freeBuild).Any(i=>i.Error),"empty construction cost list intentionally allows a free build");
+        var duplicateBuild=Draft();var extraBuild=CraftingCatalog.Copy(duplicateBuild.Professions.Rows(InfusionSchema.ConstructionCosts)[0]);extraBuild.Set("a_slot",2);duplicateBuild.Professions.Rows(InfusionSchema.ConstructionCosts).Add(extraBuild);
+        Check(InfusionRules.Validate(duplicateBuild).Any(i=>i.Error&&i.Message.Contains("duplicate")),"construction cannot charge the same material twice");
+        var manyBuild=Draft();manyBuild.Professions.Rows(InfusionSchema.ConstructionCosts).Clear();
+        for(int slot=0;slot<9;slot++){var buildCostRow=ProfessionSchema.NewRow(InfusionSchema.ConstructionCosts);buildCostRow.Set("a_slot",slot);buildCostRow.Set("a_item_index",156+slot);manyBuild.Professions.Rows(InfusionSchema.ConstructionCosts).Add(buildCostRow);}
+        Check(InfusionRules.Validate(manyBuild).Any(i=>i.Error&&i.Message.Contains("eight")),"construction supports at most eight material costs");
+        foreach(int item in new[]{19,640124,999999}){var invalidBuild=Draft();invalidBuild.Professions.Rows(InfusionSchema.ConstructionCosts)[0].Set("a_item_index",item);Check(InfusionRules.Validate(invalidBuild).Any(i=>i.Error&&i.Message.Contains("construction material")),"construction rejects gold, permanent products and missing materials: "+item);}
+        foreach(int quantity in new[]{0,1000001}){var invalidBuild=Draft();invalidBuild.Professions.Rows(InfusionSchema.ConstructionCosts)[0].Set("a_count",quantity);Check(ProfessionRules.Validate(invalidBuild).Any(i=>i.Error),"construction quantity respects server bounds: "+quantity);}
+        foreach(int build in new[]{0,1})foreach(int brewEnabled in new[]{0,1}){var independent=Draft();var facility=independent.Professions.Rows(InfusionSchema.Facility)[0];facility.Set("a_construction_enabled",build);facility.Set("a_enabled",brewEnabled);ProfessionStorage.ValidatePublished(c.Professions,independent.Professions);Check(!InfusionRules.Validate(independent).Any(i=>i.Error),"construction and brewing switches are independently editable: "+build+"/"+brewEnabled);}
+        foreach(string path in new[]{@"C:\outside.smc",@"Data\..\outside.smc",@"Data\World\bad.txt",@"Data\World\äm.smc"}){var invalidPlot=Draft();invalidPlot.Professions.Rows(InfusionSchema.Facility)[0].Set("a_plot_model",path);Check(InfusionRules.Validate(invalidPlot).Any(i=>i.Error),"unsafe unbuilt plot model rejected: "+path);}
+        var longPlot=Draft();longPlot.Professions.Rows(InfusionSchema.Facility)[0].Set("a_plot_name",new string('界',65));Check(InfusionRules.Validate(longPlot).Any(i=>i.Error&&i.Message.Contains("Plot")),"unbuilt plot name uses the same 64-character limit as the station");
         void Deny(Action action,string label){try{action();}catch(InvalidOperationException){Check(true,label);return;}throw new Exception(label);}
         foreach(string column in new[]{"a_item_index","a_skill_index","a_skill_level"}) {
             var draft=Draft();draft.Professions.Rows(InfusionSchema.Effects)[0].Set(column,999999);
@@ -155,7 +170,7 @@ static class Program
         foreach (var size in new[] { new Size(1420, 900), new Size(1100, 720) })
         {
             string suffix = $"-{size.Width}x{size.Height}"; nav.SelectedNode = nav.Nodes.Find("Overview", true).Single(); Capture("overview" + suffix, size);
-            foreach (var sample in new[] { (1, "t_gathering_node", "mining"), (2, "t_herb_population", "herbalism"), (3, "t_fishing_water", "fishing"), (4, "t_gathering_node", "wave"), (2, "t_gathering_settings", "herbalism-rules"), (5,InfusionSchema.Offers,"infusion-offers"),(5,InfusionSchema.Effects,"infusion-effects"),(5,InfusionSchema.Ingredients,"brew-ingredients"),(5,InfusionSchema.Consumables,"permanent-potions"),(5,InfusionSchema.Facility,"infusion-station") })
+            foreach (var sample in new[] { (1, "t_gathering_node", "mining"), (2, "t_herb_population", "herbalism"), (3, "t_fishing_water", "fishing"), (4, "t_gathering_node", "wave"), (2, "t_gathering_settings", "herbalism-rules"), (5,InfusionSchema.Offers,"infusion-offers"),(5,InfusionSchema.Effects,"infusion-effects"),(5,InfusionSchema.Ingredients,"brew-ingredients"),(5,InfusionSchema.Consumables,"permanent-potions"),(5,InfusionSchema.Facility,"infusion-station"),(5,InfusionSchema.ConstructionCosts,"construction-costs") })
             {
                 Navigate(sample.Item1, sample.Item2); Capture(sample.Item3 + suffix, size);
                 var panel = (Panel)Detail(sample.Item1, sample.Item2);
@@ -273,6 +288,17 @@ static class Program
         station.Set("a_required_artisan_rank",savedRequirement);Call(editor,"RefreshProfessionPages");Navigate(5,InfusionSchema.Facility);stationPanel=Detail(5,InfusionSchema.Facility);
         var radius=(NumericUpDown)stationPanel.Controls.Find("a_use_radius",true).Single();Check(radius.Value==4&&radius.DecimalPlaces==2,"station range displays metres rather than stored hundredths");radius.Value=4.25m;
         Check(c.Professions.Rows(InfusionSchema.Facility)[0].Int("a_use_radius")==425,"station metres convert exactly to native integer hundredths");radius.Value=4;
+        var constructionSwitch=(CheckBox)stationPanel.Controls.Find("a_construction_enabled",true).Single();var brewingSwitch=(CheckBox)stationPanel.Controls.Find("a_enabled",true).Single();
+        Check(constructionSwitch.Checked&&brewingSwitch.Checked&&constructionSwitch.Parent!.Controls.OfType<Label>().Any(label=>label.Text=="Construction enabled")&&brewingSwitch.Parent!.Controls.OfType<Label>().Any(label=>label.Text=="Brewing enabled"),"station clearly labels distinct construction and brewing switches");
+        constructionSwitch.Checked=false;Check(station.Int("a_construction_enabled")==0&&station.Enabled,"turning off new construction leaves brewing enabled");constructionSwitch.Checked=true;
+        brewingSwitch.Checked=false;Check(station.Int("a_construction_enabled")==1&&!station.Enabled,"turning off brewing leaves construction enabled");brewingSwitch.Checked=true;
+        var plotName=(TextBox)stationPanel.Controls.Find("a_plot_name",true).Single();string oldPlotName=plotName.Text;plotName.Text="Alchemist's unbuilt plot";
+        Check(station.Get("a_plot_name")==plotName.Text&&CraftingCatalog.Copy(c).Professions.Rows(InfusionSchema.Facility)[0].Get("a_plot_name")==plotName.Text,"unbuilt plot name edits and round-trips through the authored draft");plotName.Text=oldPlotName;
+        Call(editor,"SelectProfessionChild",5,InfusionSchema.ConstructionCosts,1);Application.DoEvents();
+        var constructionParent=(ComboBox)editor.Controls.Find("ProfessionParent_5_"+InfusionSchema.ConstructionCosts,true).Single();
+        Check((int)constructionParent.SelectedValue! == 1,"station shortcut opens its filtered construction costs");
+        var constructionPanel=Detail(5,InfusionSchema.ConstructionCosts);var buildQuantity=(NumericUpDown)constructionPanel.Controls.Find("a_count",true).Single();decimal oldBuildQuantity=buildQuantity.Value;buildQuantity.Value=oldBuildQuantity+1;
+        Check(c.Professions.Rows(InfusionSchema.ConstructionCosts).Any(r=>r.Int("a_count")==oldBuildQuantity+1),"actual construction material editor changes the selected one-time cost");buildQuantity.Value=oldBuildQuantity;
         Check(c.Fingerprint()==initial,"all actual infusion edits restore exact authored content");
         Call(editor,"NavigateInfusionEffect",2);var effectRows=(DataGridView)editor.Controls.Find("ProfessionRows_5_t_alchemy_effect",true).Single();
         Check(effectRows.CurrentRow!.Cells["Identity"].Value?.ToString()=="2","opening an offer effect selects its associated permanent definition");

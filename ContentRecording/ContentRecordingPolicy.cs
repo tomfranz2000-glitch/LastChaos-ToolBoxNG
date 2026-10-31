@@ -11,6 +11,10 @@ public sealed record ContentTable(string CanonicalSchema, string Table)
 /// Same-named character progression in ep4_db is deliberately excluded.</summary>
 public static class ContentRecordingPolicy
 {
+    // Permanent ownership and transaction receipts are never authored content,
+    // even if a future policy edit accidentally adds one to the content list.
+    public static bool IsPlayerOwnedAlchemyTable(string table) => table is
+        "t_alchemy_infusion_unlock" or "t_alchemy_work_order" or "t_alchemy_facility_unlock";
     // Existing optional Toolbox variants can write these schema-only/custom
     // sources. They need explicit classification, seeds and a policy update
     // before they can be recorded; absence or empty tables are harmless.
@@ -25,6 +29,7 @@ t_alchemy_effect
 t_alchemy_consumable
 t_alchemy_ingredient
 t_alchemy_facility
+t_alchemy_facility_ingredient
 t_alchemy_offer
 t_action
 t_affinity
@@ -151,6 +156,8 @@ t_zonedata
 
     public static void ValidateCheckout(string checkout)
     {
+        if (AllowlistedTables.Any(table => IsPlayerOwnedAlchemyTable(table.Table)))
+            throw new InvalidOperationException("Character Alchemy ownership and receipts cannot be recorded as authored content.");
         var approved = AllowlistedTables.Select(t => t.SeedRelativePath).ToHashSet(StringComparer.Ordinal);
         string seeds = Path.Combine(checkout, "x64-server", "db", "seeds");
         if (!Directory.Exists(seeds)) throw new InvalidOperationException("Select the game checkout containing x64-server/db/seeds.");

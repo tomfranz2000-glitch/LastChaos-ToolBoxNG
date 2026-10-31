@@ -37,8 +37,8 @@ if (args.Contains("--compare-host"))
         byte[] bytes = File.ReadAllBytes(Path.Combine(reference,table.CanonicalSchema,table.Table+".sql"));
         identical &= hashes[table.SeedRelativePath] == Convert.ToHexString(SHA256.HashData(bytes));
     }
-    Check(identical,"batch and host canonical transports produce identical bytes for all123 tables");
-    Console.WriteLine($"TIMING host Docker-per-query full123 export: {timer.Elapsed.TotalSeconds:F2}s");
+    Check(identical,"batch and host canonical transports produce identical bytes for all124 tables");
+    Console.WriteLine($"TIMING host Docker-per-query full124 export: {timer.Elapsed.TotalSeconds:F2}s");
     return;
 }
 if (args.Contains("--targeted"))
@@ -88,7 +88,7 @@ await using (var setup = new MySqlConnection(new MySqlConnectionStringBuilder(co
     foreach (string schema in new[] { "ep4_data", "ep4_db", "ep4_db_auth", "ep4_post" })
         using (var cmd = new MySqlCommand("CREATE DATABASE IF NOT EXISTS `" + schema + "` CHARACTER SET utf8mb4", setup)) await cmd.ExecuteNonQueryAsync();
 }
-Check(ContentRecordingPolicy.AllowlistedTables.Count == 123, "all 123 explicitly reviewed authored tables are covered");
+Check(ContentRecordingPolicy.AllowlistedTables.Count == 124, "all 124 explicitly reviewed authored tables are covered");
 ContentRecordingPolicy.ValidateCheckout(checkout);
 foreach (ContentTable t in ContentRecordingPolicy.AllowlistedTables)
 {
@@ -103,7 +103,7 @@ foreach (ContentTable t in ContentRecordingPolicy.AllowlistedTables)
     string engine = t.Table == "t_achievement" ? "MyISAM" : t.Table == "t_achievement_stage" ? "Aria" : "InnoDB";
     await Exec($"DROP TABLE IF EXISTS `{t.CanonicalSchema}`.`{t.Table}`; CREATE TABLE `{t.CanonicalSchema}`.`{t.Table}` ({genericColumns}{extra}) ENGINE={engine}; INSERT INTO `{t.CanonicalSchema}`.`{t.Table}` (id,value,payload,amount,empty_value) VALUES(1,'original',X'00FF5C272200E282AC',123456789012.12345678,NULL)");
 }
-await Exec("CREATE TABLE IF NOT EXISTS ep4_db.t_characters(id INT, secret TEXT); INSERT INTO ep4_db.t_characters VALUES(1,'CHARACTER-SECRET-DO-NOT-EXPORT'); CREATE TABLE IF NOT EXISTS ep4_db.t_alchemy_work_order(id INT, secret TEXT); INSERT INTO ep4_db.t_alchemy_work_order VALUES(1,'BREWING-JOB-SECRET-DO-NOT-EXPORT'); CREATE TABLE IF NOT EXISTS ep4_db_auth.t_users(id INT,password TEXT); INSERT INTO ep4_db_auth.t_users VALUES(1,'CREDENTIAL-SECRET-DO-NOT-EXPORT'); UPDATE ep4_db.t_castle SET a_owner_char_name='CHARACTER-NAME-DO-NOT-EXPORT',a_owner_guild_name='PLAYER-GUILD-DO-NOT-EXPORT'; UPDATE ep4_data.t_item SET latin_text=_latin1 0x80E9FF");
+await Exec("CREATE TABLE IF NOT EXISTS ep4_db.t_characters(id INT, secret TEXT); INSERT INTO ep4_db.t_characters VALUES(1,'CHARACTER-SECRET-DO-NOT-EXPORT'); CREATE TABLE IF NOT EXISTS ep4_db.t_alchemy_work_order(id INT, secret TEXT); INSERT INTO ep4_db.t_alchemy_work_order VALUES(1,'BREWING-JOB-SECRET-DO-NOT-EXPORT'); CREATE TABLE IF NOT EXISTS ep4_db.t_alchemy_facility_unlock(id INT,secret TEXT); INSERT INTO ep4_db.t_alchemy_facility_unlock VALUES(1,'BUILT-STATION-SECRET-DO-NOT-EXPORT'); CREATE TABLE IF NOT EXISTS ep4_db_auth.t_users(id INT,password TEXT); INSERT INTO ep4_db_auth.t_users VALUES(1,'CREDENTIAL-SECRET-DO-NOT-EXPORT'); UPDATE ep4_db.t_castle SET a_owner_char_name='CHARACTER-NAME-DO-NOT-EXPORT',a_owner_guild_name='PLAYER-GUILD-DO-NOT-EXPORT'; UPDATE ep4_data.t_item SET latin_text=_latin1 0x80E9FF");
 Check(await CountScratch() == 0, "fixture starts without recording scratch schemas");
 // Identity mismatch must fail before allocating any scratch schemas.
 try { await ContentDatabaseSnapshot.CaptureAsync(checkout, connectionString, new ContentCaptureOptions(Path.Combine(Path.GetDirectoryName(compose)!,"identity-mismatch.yml"))); throw new Exception("Identity mismatch accepted"); }
@@ -137,10 +137,10 @@ await using (var snapshot = await ContentDatabaseSnapshot.CaptureAsync(checkout,
     try { snapshot.Query("utf8", "UPDATE t_item SET amount=3"); throw new Exception("Write accepted"); } catch (InvalidOperationException) { Check(true,"query rejects mutation"); }
     var timer = Stopwatch.StartNew();
     IReadOnlyDictionary<string,string> exports = await snapshot.DumpSeedsAsync();
-    Console.WriteLine($"TIMING batch canonical 123-table export: {timer.Elapsed.TotalSeconds:F2}s, {exports.Values.Sum(p=>new FileInfo(p).Length)} bytes");
-    Check(exports.Count == 123, "canonical exporter produces every approved seed");
+    Console.WriteLine($"TIMING batch canonical 124-table export: {timer.Elapsed.TotalSeconds:F2}s, {exports.Values.Sum(p=>new FileInfo(p).Length)} bytes");
+    Check(exports.Count == 124, "canonical exporter produces every approved seed");
     string all = string.Join("\n",exports.Values.Select(File.ReadAllText));
-    Check(!all.Contains("BREWING-JOB-SECRET") && !all.Contains("CHARACTER-SECRET") && !all.Contains("CREDENTIAL-SECRET") && !all.Contains("CHARACTER-NAME") && !all.Contains("PLAYER-GUILD"), "no player credentials, character rows or mixed-table player names enter seeds");
+    Check(!all.Contains("BUILT-STATION-SECRET") && !all.Contains("BREWING-JOB-SECRET") && !all.Contains("CHARACTER-SECRET") && !all.Contains("CREDENTIAL-SECRET") && !all.Contains("CHARACTER-NAME") && !all.Contains("PLAYER-GUILD"), "no player credentials, character rows or mixed-table player names enter seeds");
     Check(!all.Contains("98765"), "all five mixed-table runtime fields are normalized");
     Check(File.ReadAllText(exports["x64-server/db/seeds/ep4_db/t_lcball.sql"]).Contains(",99,99)"), "live redemption counter is reset to authored maximum");
     Check(!all.Contains("USE `lc_record_"), "seed headers retain canonical schema names");

@@ -51,6 +51,7 @@ public sealed partial class CraftingMasteryEditor
         Entry(infusions,"Permanent potions",()=>NavigateProfessionPage(5,InfusionSchema.Consumables));
         Entry(infusions,"Permanent effects",()=>NavigateProfessionPage(5,InfusionSchema.Effects));
         Entry(infusions,"Alchemy station",()=>NavigateProfessionPage(5,InfusionSchema.Facility));
+        Entry(infusions,"Construction costs",()=>NavigateProfessionPage(5,InfusionSchema.ConstructionCosts));
         var gather=navigation.Nodes.Add("Gathering");
         foreach(var pair in new[]{(1,"Mining"),(2,"Herbalism"),(3,"Fishing"),(4,"Wave Absorption")}) {
             int p=pair.Item1;Entry(gather,pair.Item2,()=>NavigateProfession(p));

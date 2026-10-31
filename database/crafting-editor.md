@@ -2,7 +2,7 @@
 
 Open **Professions Editor** from the toolbox editor list. **Crafting Editor — Legacy** continues to edit `t_factory_item`; it does not control the new system.
 
-The new editor uses the toolbox's configured content database and item locale. It requires the game's migrations through **0042**. It does not apply migrations, create tables, or change player progression.
+The new editor uses the toolbox's configured content database and item locale. It requires the game's migrations through **0043**. It does not apply migrations, create tables, or change player progression.
 
 ## Deploying toolbox updates
 
@@ -136,7 +136,7 @@ and no-gain levels stay independent. Raise those endpoints for new training cont
 when needed; raising the global cap alone does not change a recipe's chances.
 **Validate / Overview** warns about recipes requiring a level above the current cap.
 
-The current editor requires migrations through 0042 and matching client/GameServer
+The current editor requires migrations through 0043 and matching client/GameServer
 builds. Subsequent cap edits are purely database driven.
 
 ## Alchemy infusions
@@ -175,6 +175,22 @@ production.
   checks map bounds; the editor cannot prove physical accessibility or that a
   newly named model is installed.
 
+Construction is configured under **Infusions → Alchemy station** and
+**Construction costs**. The station has separate **Construction enabled** and
+**Brewing enabled** switches. The Artisan Rank requirement grants permission to
+build once; it is not a continuing brewing requirement. Existing built ownership
+is saved per character and is never revoked by edits to rank, costs or availability.
+Turning off construction prevents new builds; turning off brewing pauses new
+brews without deleting stations or paid jobs.
+
+Edit the unbuilt plot name/model separately from the completed station. Both
+use the configured private-hall placement. The default one-time cost is **1
+Flawed Stone (156) + 1 Herb Trunk (198)**. The linked costs page supports up to
+eight different ordinary stackable materials with item lookup and quantities.
+Remove every cost for a free build. Gold, permanent potions, quest/expiring items,
+duplicates and unsupported materials are rejected before Save. Cost changes affect
+future builds only. Plot/station models need normal client asset deployment.
+
 At most 16 effect definitions and 16 offers are supported, including retired
 offers. Supported sources are enabled stackable type-6/subtype-5 potions with an
 unconditional helpful self buff, a positive duration and no charges or special
@@ -185,13 +201,13 @@ or below the skill prototype's maximum. Save rechecks current item/skill/magic
 metadata in its transaction. Skill definitions remain in the existing Skill and
 Magic editors; this section does not copy or modify them.
 
-Apply game migrations through **0042** and matching client/server first. Save, then reopen
+Apply game migrations through **0043** and matching client/server first. Save, then reopen
 the station to refresh offers. Placement/model edits may require re-entering the
 private hall; new model/texture files need normal client asset deployment.
 
 ## Save, reload and version control
 
-Saves affect these 28 **authored content** tables only:
+Saves affect these 29 **authored content** tables only:
 
 - `t_crafting_settings`
 - `t_crafting_recipe`, `t_crafting_ingredient`, `t_crafting_manual`, `t_crafting_bonus_output`
@@ -201,19 +217,19 @@ Saves affect these 28 **authored content** tables only:
 - `t_gathering_settings`, `t_gathering_node`, `t_gathering_node_loot`, `t_gathering_tool`, `t_gathering_profile`
 - `t_herb_population`, `t_herb_spawn_point`, `t_herb_loot`
 - `t_fishing_settings`, `t_fishing_water`, `t_fishing_water_vertex`, `t_fishing_loot`
-- `t_alchemy_effect`, `t_alchemy_consumable`, `t_alchemy_offer`, `t_alchemy_ingredient`, `t_alchemy_facility`
+- `t_alchemy_effect`, `t_alchemy_consumable`, `t_alchemy_offer`, `t_alchemy_ingredient`, `t_alchemy_facility`, `t_alchemy_facility_ingredient`
 
-The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 28 tables must be InnoDB; unreviewed custom triggers are refused.
+The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 29 tables must be InnoDB; unreviewed custom triggers are refused.
 
 For edits that use already deployed item definitions and artwork, reopen `/craft` for recipes, `/gather` for gathering resource mastery, or `/artisan` for Artisan Ranks. Ordinary catalogue tuning needs no rebuild or restart. Actual herb populations/sites/loot additionally require administrator `/herbpop reload`; changes to the enabled population ID/zone/NPC ownership set require GameServer restart. Static NPC placements and new prototypes follow their normal deployment path. The Overview apply guide explains these distinctions. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
 
-After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 28 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
+After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 29 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
 
 Review and commit the resulting `x64-server/db/seeds/ep4_data` diff. Export new or changed `t_item` content separately, and promote exported client data into the game's authored asset tree. This button never exports player XP, learned recipes, earned ranks, inventory or character stat points.
 
-The Toolbox's **Record saved content in Git** button also includes all five
+The Toolbox's **Record saved content in Git** button also includes all six
 authored infusion tables. Character-owned `ep4_db.t_alchemy_infusion_unlock`,
-`ep4_db.t_alchemy_work_order` jobs/receipts, purchase tokens and acquired timestamps are explicitly excluded.
+`ep4_db.t_alchemy_work_order` jobs/receipts, and `ep4_db.t_alchemy_facility_unlock` built-station ownership are explicitly excluded, including their operation tokens and timestamps.
 
 ## Existing engine limits
 

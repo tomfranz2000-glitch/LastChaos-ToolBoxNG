@@ -15,7 +15,7 @@ public static class ProfessionStorage
                 using var reader=command.ExecuteReader();
             }
         } catch(MySqlException e) when(e.Number is 1054 or 1146) {
-            throw new InvalidOperationException("Profession content schema is incomplete. Apply the game's migrations through 0042; this editor never creates or changes database schema.",e);
+            throw new InvalidOperationException("Profession content schema is incomplete. Apply the game's migrations through 0043; this editor never creates or changes database schema.",e);
         }
     }
     public static ProfessionContent Read(MySqlConnection db,MySqlTransaction tx,bool locked,string locale="usa")
@@ -50,7 +50,7 @@ public static class ProfessionStorage
     public static void Save(MySqlConnection db,MySqlTransaction tx,ProfessionContent original,ProfessionContent edited)
     {
         if(original.Canonical()==edited.Canonical())return;
-        string[] children=["t_gathering_node_loot","t_herb_spawn_point","t_herb_loot","t_fishing_water_vertex","t_fishing_loot",InfusionSchema.Ingredients];
+        string[] children=["t_gathering_node_loot","t_herb_spawn_point","t_herb_loot","t_fishing_water_vertex","t_fishing_loot",InfusionSchema.Ingredients,InfusionSchema.ConstructionCosts];
         foreach(var table in children)Execute(db,tx,"DELETE FROM `"+table+"`");
         // Temporary unreferenced NPC numbers permit unique-binding swaps inside
         // this transaction. They are never published to the game or seed export.
