@@ -6,7 +6,7 @@ using System.Text.Json;
 internal static class Program
 {
     const string Endpoint="Server=127.0.0.1;Port=33318;User ID=root;Password=professions-fixture-only;Connection Timeout=4;Default Command Timeout=20;";
-    const string Connection=Endpoint+"Database=ep4_data;Character Set=utf8mb4;";
+    const string Connection=Endpoint+"Database=ep4_data;Character Set=utf8mb4;Allow User Variables=true;";
     static readonly CraftingRepository Repository=new(Connection,"usa");
     static MySqlConnection db=null!;static int checks;static string output="";
     static void Check(bool ok,string label){if(!ok)throw new Exception(label);checks++;Console.WriteLine("PASS "+label);}
@@ -24,7 +24,25 @@ internal static class Program
             using(var admin=new MySqlConnection(Endpoint)){admin.Open();using var cmd=new MySqlCommand("DROP DATABASE IF EXISTS ep4_data;DROP DATABASE IF EXISTS ep4_db;CREATE DATABASE ep4_data CHARACTER SET utf8mb4;CREATE DATABASE ep4_db CHARACTER SET utf8mb4;",admin);cmd.ExecuteNonQuery();}
             using var database=new MySqlConnection(Connection);db=database;db.Open();FixtureContent.Setup(Path.GetFullPath(args[0]),db);
             var catalog=Repository.Load();string players=Players();
-            Check(CraftingRepository.Tables.Length==29&&catalog.Professions.Tables.Count==18,"All29 content tables load atomically");
+            Check(CraftingRepository.Tables.Length==30&&catalog.Professions.Tables.Count==18,"All30 content tables load atomically");
+            Check(catalog.Ranks.Single(r=>r.Id==1).Perks.Any(p=>p.Type==ArtisanPerks.UpgradeBreakProtection&&p.Enabled),"seeded Rank I protection loads as a real perk separate from stat bonuses");
+            Check(!catalog.Ranks.Single(r=>r.Id==1).Bonuses.Any(b=>b.Effect==4&&b.Amount==100),"default Rank I HP placeholder is replaced without fabricating a stat option");
+            var perkEdit=CraftingCatalog.Copy(catalog);perkEdit.Ranks.Single(r=>r.Id==1).Perks[0].Enabled=false;
+            perkEdit.Ranks.Single(r=>r.Id==2).Perks.Add(new(){Type=ArtisanPerks.UpgradeBreakProtection,Enabled=true});
+            Repository.Save(catalog,perkEdit);var perkSaved=Repository.Load();
+            Check(perkSaved.Fingerprint()==perkEdit.Fingerprint()&&Scalar("SELECT GROUP_CONCAT(CONCAT(a_rank_index,':',a_enabled) ORDER BY a_rank_index) FROM t_crafting_master_rank_perk")=="1:0,2:1","per-rank assignment and explicit disabled mappings round-trip atomically");
+            Check(CraftingCatalog.Copy(perkSaved).Fingerprint()==perkSaved.Fingerprint(),"draft JSON retains nonstat perk identity and disabled state");
+            Reject(()=>Repository.Save(catalog,catalog),"changed in another editor");
+            var invalidPerk=CraftingCatalog.Copy(perkSaved);invalidPerk.Ranks[0].Perks.Add(new(){Type=1});Invalid(invalidPerk,"supported Artisan perk");
+            invalidPerk=CraftingCatalog.Copy(perkSaved);invalidPerk.Ranks[0].Perks.Add(new(){Type=99});Invalid(invalidPerk,"supported Artisan perk");
+            Reject(()=>Repository.Save(perkSaved,invalidPerk),"supported Artisan perk");
+            Check(Repository.Load().Fingerprint()==perkSaved.Fingerprint()&&Players()==players,"invalid perk definitions preserve content and all player rank/ownership sentinels");
+            Repository.Save(perkSaved,catalog);catalog=Repository.Load();
+            Repository.WithLockedCatalog((snapshot,identity)=> {using var other=new MySqlConnection(Connection);other.Open();using var timeout=new MySqlCommand("SET innodb_lock_wait_timeout=1",other);timeout.ExecuteNonQuery();Reject(()=>{using var change=new MySqlCommand("UPDATE t_crafting_master_rank_perk SET a_enabled=0 WHERE a_rank_index=1",other);change.ExecuteNonQuery();},"Lock wait timeout");});
+            var perkRollback=CraftingCatalog.Copy(catalog);perkRollback.Ranks[0].Perks[0].Enabled=false;perkRollback.Professions.Rows("t_fishing_loot")[0].Set("a_item_count",13);
+            Exec("ALTER TABLE t_fishing_loot ADD CONSTRAINT fixture_perk_late CHECK(a_item_count<>13)");
+            Reject(()=>Repository.Save(catalog,perkRollback),"fixture_perk_late");
+            Check(Repository.Load().Fingerprint()==catalog.Fingerprint()&&Players()==players,"late SQL failure restores perk mappings and every player sentinel");Exec("ALTER TABLE t_fishing_loot DROP CONSTRAINT fixture_perk_late");
             foreach(var table in ProfessionSchema.Tables) {
                 string sql="SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY COLUMN_NAME) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='ep4_data' AND TABLE_NAME='"+table.Name+"'";
                 Check(Scalar(sql)==string.Join(',',table.Fields.Select(f=>f.Column).Order(StringComparer.Ordinal)),"Metadata exactly covers "+table.Name);
@@ -38,7 +56,7 @@ internal static class Program
             Repository.Save(unrestrictedSaved,catalog);catalog=Repository.Load();
             var missingRank=CraftingCatalog.Copy(catalog);Row(missingRank,InfusionSchema.Facility,1).Set("a_required_artisan_rank",900001);
             Reject(()=>Repository.Save(catalog,missingRank),"Artisan Rank");
-            var issues=CraftingRules.Validate(catalog);Check(!issues.Any(i=>i.Error),"Canonical28-table content satisfies actual catalogue contracts: "+string.Join(";",issues.Where(i=>i.Error)));
+            var issues=CraftingRules.Validate(catalog);Check(!issues.Any(i=>i.Error),"Canonical30-table content satisfies actual catalogue contracts: "+string.Join(";",issues.Where(i=>i.Error)));
             Check(catalog.Professions.Npcs.Count>0&&catalog.Professions.Zones.Count>0,"Loaded NPC flags and zone metadata");
             var availability=CraftingCatalog.Copy(catalog);var wave=Row(availability,"t_gathering_node",2);wave.Set("a_item_index",777099);
             Check(!availability.IsGatheringAvailable(777099),"Wave base/display item does not falsely create attainable mastery points");

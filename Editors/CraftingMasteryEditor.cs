@@ -88,8 +88,9 @@ public sealed partial class CraftingMasteryEditor : Form
         BuildTeachingItems(page);
 
         page=new("Artisan Ranks"); tabs.TabPages.Add(page);
-        var rankSplit=new SplitContainer { Size=new(1350,750), Dock=DockStyle.Fill, FixedPanel=FixedPanel.Panel1, Panel1MinSize=330, Panel2MinSize=580, SplitterDistance=430 };
-        Shown+=(_,_)=>rankSplit.SplitterDistance=Math.Max(330,Math.Min(450,rankSplit.Width-585));
+        var rankSplit=new SplitContainer { Size=new(1350,750), Dock=DockStyle.Fill, FixedPanel=FixedPanel.Panel1, Panel1MinSize=250, Panel2MinSize=450, SplitterDistance=330 };
+        void FitRanks() { if(rankSplit.Width>=705) rankSplit.SplitterDistance=Math.Max(250,Math.Min(330,rankSplit.Width-455)); }
+        Shown+=(_,_)=>FitRanks();rankSplit.SizeChanged+=(_,_)=>FitRanks();
         page.Controls.Add(rankSplit);
         var rankTools=Flow(); rankTools.Controls.AddRange([Button("New Artisan Rank",()=>NewRank()),Button("Duplicate",()=>NewRank(true)),Button("Move up",()=>MoveRank(-1)),Button("Move down",()=>MoveRank(1)),Button("Discard new",()=>DiscardNewRank())]);
         Column(ranks,"Order","Order",40); Column(ranks,"Name","Artisan Rank",140); Column(ranks,"RequiredMastered","Points",65);

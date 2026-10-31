@@ -52,11 +52,11 @@ static class Program
             string player = await Scalar("SELECT GROUP_CONCAT(secret ORDER BY id) FROM ep4_db.t_characters");
             host.pSettings.WorkLocale = "usa"; host.pSettings.NationSupported = ["USA"];
             host.pSettings.ClientPath = Path.Combine(temporary, "source-client");
-            await Execute("UPDATE ep4_data.t_crafting_settings SET amount=amount+1");
+            await Execute("UPDATE ep4_data.t_crafting_master_rank_perk SET amount=amount+1");
             string before = Git(temporary, "rev-parse", "HEAD").Trim();
             var recorded = await ContentRecordingService.RecordAsync(host, temporary, FixtureConnection, options);
             Check(recorded.Changed && recorded.Files == 1 && recorded.Commit != before, "real service creates one local commit for one saved content change");
-            Check(Git(temporary, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").Trim() == "x64-server/db/seeds/ep4_data/t_crafting_settings.sql", "commit contains only changed authored seed");
+            Check(Git(temporary, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").Trim() == "x64-server/db/seeds/ep4_data/t_crafting_master_rank_perk.sql", "commit contains only changed authored Artisan perk seed");
             Check(Git(temporary, "status", "--porcelain=v1") == originalStatus && File.ReadAllText(Path.Combine(temporary, "unrelated.txt")).EndsWith("unstaged draft"), "service preserves unrelated staged and unstaged work");
             var noChange = await ContentRecordingService.RecordAsync(host, temporary, FixtureConnection, options);
             Check(!noChange.Changed && Git(temporary, "rev-parse", "HEAD").Trim() == recorded.Commit, "second click with unchanged saved content creates no commit");

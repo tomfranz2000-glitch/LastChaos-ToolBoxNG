@@ -136,7 +136,7 @@ and no-gain levels stay independent. Raise those endpoints for new training cont
 when needed; raising the global cap alone does not change a recipe's chances.
 **Validate / Overview** warns about recipes requiring a level above the current cap.
 
-The current editor requires migrations through 0043 and matching client/GameServer
+The current editor requires migrations through 0044 and matching client/GameServer
 builds. Subsequent cap edits are purely database driven.
 
 ## Alchemy infusions
@@ -219,11 +219,11 @@ Saves affect these 29 **authored content** tables only:
 - `t_fishing_settings`, `t_fishing_water`, `t_fishing_water_vertex`, `t_fishing_loot`
 - `t_alchemy_effect`, `t_alchemy_consumable`, `t_alchemy_offer`, `t_alchemy_ingredient`, `t_alchemy_facility`, `t_alchemy_facility_ingredient`
 
-The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 29 tables must be InnoDB; unreviewed custom triggers are refused.
+The editor locks and checks the current catalogue against its loaded snapshot before writing. If another editor changed it, Save refuses the overwrite and retains the draft. Revert / Reload then reapply the intended changes. Current item definitions are checked again within the save transaction. Partial SQL failure rolls back the entire save. All 30 tables must be InnoDB; unreviewed custom triggers are refused.
 
 For edits that use already deployed item definitions and artwork, reopen `/craft` for recipes, `/gather` for gathering resource mastery, or `/artisan` for Artisan Ranks. Ordinary catalogue tuning needs no rebuild or restart. Actual herb populations/sites/loot additionally require administrator `/herbpop reload`; changes to the enabled population ID/zone/NPC ownership set require GameServer restart. Static NPC placements and new prototypes follow their normal deployment path. The Overview apply guide explains these distinctions. New item prototypes still require the existing server item-loading and client `.lod` export/deployment workflow; new emblem textures require asset deployment.
 
-After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 29 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
+After Save, **Export profession content** asks for the game Git checkout and runs its existing `x64-server/db/export-seed.sh` for exactly these 30 tables. This button supports the local Docker Compose database using the toolbox's root credentials and `ep4_data`. Git for Windows and Docker must be available. The exporter verifies that the Compose service is the same database the editor loaded, holds the catalogue stable while exporting, and stages files before replacing the seeds. Passwords are passed through environment variables, never command-line arguments. Other connection setups can still Save; use the normal exporter command outside the toolbox for those setups.
 
 Review and commit the resulting `x64-server/db/seeds/ep4_data` diff. Export new or changed `t_item` content separately, and promote exported client data into the game's authored asset tree. This button never exports player XP, learned recipes, earned ranks, inventory or character stat points.
 
@@ -263,3 +263,27 @@ stack limits, cross-profession mastery links, bonus-channel totals and geometry
 contracts. SQL accepting a value is not sufficient. Source geometry, actual terrain
 and deployed model compatibility still require the appropriate world/client tools
 and manual verification.
+
+## Artisan perks
+
+The Artisan Ranks page separates **Rank settings** from **Rewards**. Its Rewards
+tab has a **Perks** section separate from numeric **Stat bonuses**.
+Check **Equipment cannot break during upgrades** to assign that supported ability
+to a rank. Its rank association and enabled state are authored database content,
+not a special stat or a hardcoded Rank I rule. The game implements the supported
+ability; adding a different kind of ability still needs game code.
+
+Checked perks apply to characters with the permanent earned rank ID, including
+when that rank is retired. Unchecking a perk intentionally removes its current
+benefit. Retiring the rank instead prevents new unlocks and preserves rewards for
+existing owners. Upgrade costs and success chances are unchanged; failed upgrades may still lower
+the upgrade level. The cumulative
+summary includes perks once even if several ranks grant the same ability.
+
+Migration 0044 assigns protection to Rank I and removes only the exact shipped
+Rank I +100 maximum HP placeholder; custom bonuses remain. To replace another
+reward later, remove its stat row separately. Assigning a perk does not remove
+other bonuses. Saved drafts, concurrent-edit detection, atomic Save and both
+profession export/content recording include `t_crafting_master_rank_perk`. Earned
+player ranks are never exported or changed by this editor. Reopen `/artisan` to
+refresh its displayed catalogue; the server enforces the perk.

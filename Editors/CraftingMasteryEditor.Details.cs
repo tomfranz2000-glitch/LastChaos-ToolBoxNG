@@ -121,7 +121,7 @@ public sealed partial class CraftingMasteryEditor
             if(bonuses.Count(b=>!tiered||b.Rank==rank)>=8) {status.Text="This rank already has eight bonus effects.";return;}
             int effect=CraftingRules.Effects.Keys.First(k=>bonuses.All(b=>(tiered&&b.Rank!=rank)||b.Effect!=k)); source.Add(new Bonus { Rank=rank,Effect=effect }); Changed();
         }),Button("Remove bonus",()=> { if(grid.CurrentRow?.DataBoundItem is Bonus b) { source.Remove(b); Changed(); } })]);
-        var help=Label("Enter movement in speed units; interval reduction and PvE chance use percentages (up to two decimals).\r\nTier entries add together: the Gold total includes Bronze, Silver and Gold rewards.");
+        var help=Label("Enter movement in speed units; interval reduction and PvE chance use percentages (up to two decimals)."+(tiered?"\r\nTier entries add together: the Gold total includes Bronze, Silver and Gold rewards.":"\r\nArtisan stat bonuses stack across earned ranks; perks are configured separately above."));
         help.MaximumSize=new(650,0);
         return Vertical(tools,help,grid);
     }
@@ -163,26 +163,47 @@ public sealed partial class CraftingMasteryEditor
     }
     private void ShowRank()
     {
+        int selectedPage=rankDetail.Controls.OfType<TabControl>().FirstOrDefault()?.SelectedIndex??0;
         ClearPanel(rankDetail); detailGrids.RemoveAll(g=>g.IsDisposed);
         if(selectedRank is not MastersRank r) { rankDetail.Controls.Add(Label("Add an Artisan Rank to define its threshold and rewards.")); return; }
-        var fields=Fields(); fields.Dock=DockStyle.Top; fields.AutoSize=true;
-        fields.Controls.Add(Label($"Artisan Rank #{r.Id} — permanent identity; earned rank IDs are never revoked by changing thresholds."));
+        var pages=new TabControl {Name="ArtisanRankDetails",Dock=DockStyle.Fill};
+        var settings=new TabPage("Rank settings");var rewards=new TabPage("Rewards");pages.TabPages.AddRange([settings,rewards]);rankDetail.Controls.Add(pages);
+        var fields=Fields();settings.Controls.Add(fields);
+        fields.Controls.Add(Label($"Artisan Rank #{r.Id} — permanent identity.\r\nChanging thresholds never revokes earned rank IDs."));
         TextField(fields,"Artisan Rank name",r.Name,v=>r.Name=v); Number(fields,"Display order",1,int.MaxValue,r.Order,v=>r.Order=(int)v);
         Number(fields,"Artisan Rank points to unlock",1,98304,r.RequiredMastered,v=>r.RequiredMastered=(int)v);
         Check(fields,"Enabled — may be newly earned",r.Enabled,v=>r.Enabled=v);
         TextField(fields,"Emblem (.tex filename)",r.Emblem,v=>r.Emblem=v);
         var emblemRow=Flow(); emblemRow.Dock=DockStyle.None;
         emblemRow.Controls.Add(Button("Choose / preview emblem",()=>ChooseEmblem(r))); fields.Controls.Add(emblemRow);
-        fields.Controls.Add(Label("Retiring prevents new unlocks and retains earned rewards. Current bonuses stack across all earned ranks."));
-        rankSummary=new Label { AutoSize=true, MaximumSize=new(800,0) };
+        fields.Controls.Add(Label("Retiring prevents new unlocks and retains earned rewards.\r\nCurrent bonuses stack across all earned ranks."));
+        rankSummary=new Label { AutoSize=true, MaximumSize=new(430,0) };
         UpdateRankSummary(); fields.Controls.Add(rankSummary);
+        var perks=Fields();perks.Dock=DockStyle.Top;perks.AutoSize=true;
+        perks.Controls.Add(Label("PERKS — permanent abilities, separate from stat bonuses"));
+        foreach (var definition in ArtisanPerks.Names) {
+            int type=definition.Key;
+            var perk=new CheckBox { Name="ArtisanPerk_"+type,Text=definition.Value,AutoSize=true,
+                Checked=r.Perks.Any(p=>p.Type==type && p.Enabled),Margin=new(8) };
+            perk.CheckedChanged+=(_,_)=> {
+                var mapping=r.Perks.SingleOrDefault(p=>p.Type==type);
+                if (mapping==null) r.Perks.Add(new() {Type=type,Enabled=perk.Checked});
+                else mapping.Enabled=perk.Checked;
+                Changed();UpdateRankSummary();
+            };
+            perks.Controls.Add(perk);
+        }
+        perks.Controls.Add(Label("Checked perks apply to characters who earned this rank.\r\nUnchecking removes that benefit; retiring only stops new unlocks."));
+        perks.Controls.Add(Label("Failed upgrades may still lower the upgrade level.\r\nUpgrade costs and success chances are unchanged."));
         var bonuses=BonusGrid(r.Bonuses);
-        rankDetail.Controls.Add(Vertical(fields,bonuses));
+        rewards.Controls.Add(Vertical(perks,Label("STAT BONUSES"),bonuses));
+        pages.SelectedIndex=Math.Clamp(selectedPage,0,1);
     }
     private void UpdateRankSummary()
     {
         if(selectedRank is MastersRank r && rankSummary is { IsDisposed:false })
-            rankSummary.Text="Cumulative through this rank: "+CraftingRules.Rewards(catalog.Ranks.Where(n=>n.Order<=r.Order).SelectMany(n=>n.Bonuses));
+            rankSummary.Text="Cumulative through this rank: "+CraftingRules.Rewards(catalog.Ranks.Where(n=>n.Order<=r.Order).SelectMany(n=>n.Bonuses))
+                +"\r\nPerks through this rank: "+(string.Join("; ",ArtisanPerks.Active(catalog.Ranks.Where(n=>n.Order<=r.Order))) is {Length:>0} perks?perks:"None");
     }
     private void NewRank(bool copy=false)
     {

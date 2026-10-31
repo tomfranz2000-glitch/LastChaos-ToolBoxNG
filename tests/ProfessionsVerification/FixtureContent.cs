@@ -30,6 +30,7 @@ internal static class FixtureContent
         string products=Migration("0042-alchemy-permanent-potion-items.sql");
         Exec("USE ep4_data;"+products[products.IndexOf("UPDATE t_alchemy_offer",StringComparison.Ordinal)..]);
         ExecuteScript(db,Migration("0043-alchemy-station-construction.sql"));
+        ExecuteScript(db,Migration("0044-artisan-upgrade-protection.sql"));
         Exec("USE ep4_data;");
         Exec("CREATE TABLE t_npc(a_index INT PRIMARY KEY,a_name VARCHAR(100),a_name_usa VARCHAR(100),a_flag BIGINT,a_enable INT) ENGINE=InnoDB;CREATE TABLE t_zonedata(a_zone_index INT PRIMARY KEY,a_name VARCHAR(100)) ENGINE=InnoDB;");
         foreach(string table in CraftingRepository.Tables)Exec(File.ReadAllText(Path.Combine(game,"x64-server/db/seeds/ep4_data",table+".sql")));

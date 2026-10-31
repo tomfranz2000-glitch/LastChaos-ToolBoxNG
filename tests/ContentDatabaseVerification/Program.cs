@@ -37,8 +37,8 @@ if (args.Contains("--compare-host"))
         byte[] bytes = File.ReadAllBytes(Path.Combine(reference,table.CanonicalSchema,table.Table+".sql"));
         identical &= hashes[table.SeedRelativePath] == Convert.ToHexString(SHA256.HashData(bytes));
     }
-    Check(identical,"batch and host canonical transports produce identical bytes for all124 tables");
-    Console.WriteLine($"TIMING host Docker-per-query full124 export: {timer.Elapsed.TotalSeconds:F2}s");
+    Check(identical,"batch and host canonical transports produce identical bytes for all125 tables");
+    Console.WriteLine($"TIMING host Docker-per-query full125 export: {timer.Elapsed.TotalSeconds:F2}s");
     return;
 }
 if (args.Contains("--targeted"))
@@ -88,7 +88,7 @@ await using (var setup = new MySqlConnection(new MySqlConnectionStringBuilder(co
     foreach (string schema in new[] { "ep4_data", "ep4_db", "ep4_db_auth", "ep4_post" })
         using (var cmd = new MySqlCommand("CREATE DATABASE IF NOT EXISTS `" + schema + "` CHARACTER SET utf8mb4", setup)) await cmd.ExecuteNonQueryAsync();
 }
-Check(ContentRecordingPolicy.AllowlistedTables.Count == 124, "all 124 explicitly reviewed authored tables are covered");
+Check(ContentRecordingPolicy.AllowlistedTables.Count == 125, "all 125 explicitly reviewed authored tables are covered");
 ContentRecordingPolicy.ValidateCheckout(checkout);
 foreach (ContentTable t in ContentRecordingPolicy.AllowlistedTables)
 {
@@ -137,8 +137,9 @@ await using (var snapshot = await ContentDatabaseSnapshot.CaptureAsync(checkout,
     try { snapshot.Query("utf8", "UPDATE t_item SET amount=3"); throw new Exception("Write accepted"); } catch (InvalidOperationException) { Check(true,"query rejects mutation"); }
     var timer = Stopwatch.StartNew();
     IReadOnlyDictionary<string,string> exports = await snapshot.DumpSeedsAsync();
-    Console.WriteLine($"TIMING batch canonical 124-table export: {timer.Elapsed.TotalSeconds:F2}s, {exports.Values.Sum(p=>new FileInfo(p).Length)} bytes");
-    Check(exports.Count == 124, "canonical exporter produces every approved seed");
+    Console.WriteLine($"TIMING batch canonical 125-table export: {timer.Elapsed.TotalSeconds:F2}s, {exports.Values.Sum(p=>new FileInfo(p).Length)} bytes");
+    Check(exports.Count == 125, "canonical exporter produces every approved seed");
+    Check(exports.ContainsKey("x64-server/db/seeds/ep4_data/t_crafting_master_rank_perk.sql"), "canonical export includes authored Artisan perk assignments without player rank state");
     string all = string.Join("\n",exports.Values.Select(File.ReadAllText));
     Check(!all.Contains("BUILT-STATION-SECRET") && !all.Contains("BREWING-JOB-SECRET") && !all.Contains("CHARACTER-SECRET") && !all.Contains("CREDENTIAL-SECRET") && !all.Contains("CHARACTER-NAME") && !all.Contains("PLAYER-GUILD"), "no player credentials, character rows or mixed-table player names enter seeds");
     Check(!all.Contains("98765"), "all five mixed-table runtime fields are normalized");
