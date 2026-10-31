@@ -59,6 +59,10 @@ public sealed partial class CraftingMasteryEditor
         Entry(transmutation,"Equipment exceptions",()=>NavigateProfessionPage(6,TransmutationSchema.ItemRules));
         Entry(transmutation,"Transmutation Crucible",()=>NavigateProfessionPage(6,TransmutationSchema.Facility));
         Entry(transmutation,"Crucible construction costs",()=>NavigateProfessionPage(6,TransmutationSchema.ConstructionCosts));
+        var display=navigation.Nodes.Add("Accessory Display");display.Name="Accessory Display";
+        display.Tag=(Action)(()=>NavigateProfessionPage(7,AccessoryDisplaySchema.Facility));
+        Entry(display,"Display and rank requirement",()=>NavigateProfessionPage(7,AccessoryDisplaySchema.Facility));
+        Entry(display,"Display construction costs",()=>NavigateProfessionPage(7,AccessoryDisplaySchema.ConstructionCosts));
         var gather=navigation.Nodes.Add("Gathering");
         foreach(var pair in new[]{(1,"Mining"),(2,"Herbalism"),(3,"Fishing"),(4,"Wave Absorption")}) {
             int p=pair.Item1;Entry(gather,pair.Item2,()=>NavigateProfession(p));

@@ -42,3 +42,11 @@ recording/player boundaries, and Rank II's facility-reward link. Captures cover 
 page at 1420×900 and 1100×720, including an empty exception list.
 
 The complete Transmutation UI run passes 212 checks; the final runtime-eligibility alignment also passes 35 focused rules checks. Screenshots and result receipts remain in ignored validation output.
+
+Accessory Display coverage adds the named Rank IV construction gate, independent
+deposit/construction switches, native placement units, real one-time material
+controls, rank-reward navigation and both pages at normal/minimum window sizes.
+Rules reject invalid models, references, names, repeated materials and placement
+bounds while retaining None and retired rank identities. The coordinated run
+passes 247 checks against canonical content seeds without connecting to a
+database or launching the game.

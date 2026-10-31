@@ -73,12 +73,13 @@ static partial class Program
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         var c = Load(args[1]); var initial = c.Fingerprint();
         CheckTransmutationRules(c);
-        if(args.Length==4&&args[3]=="--rules-only") {File.WriteAllText(Path.Combine(output,"result.json"),JsonSerializer.Serialize(new {passed=true,checks,liveDatabaseChanged=false}));Console.WriteLine(checks+" Transmutation rules checks passed");return 0;}
+        CheckAccessoryDisplayRules(c);
+        if(args.Length==4&&args[3]=="--rules-only") {File.WriteAllText(Path.Combine(output,"result.json"),JsonSerializer.Serialize(new {passed=true,checks,liveDatabaseChanged=false}));Console.WriteLine(checks+" facility rules checks passed");return 0;}
         Check(!InfusionRules.Validate(c).Any(i=>i.Error),"authored infusion catalogue matches supported original potion effects");
         Check(c.Professions.Rows(InfusionSchema.Effects).Count==4&&c.Professions.Rows(InfusionSchema.Offers).All(r=>r.Int("a_required_count")==250),"four initial offers each consume 250 original potions");
         Check(InfusionSchema.Tables.All(t=>ContentRecordingPolicy.AllowlistedTables.Any(a=>a.Key=="ep4_data/"+t.Name))&&!ContentRecordingPolicy.AllowlistedTables.Any(t=>t.Table is "t_alchemy_infusion_unlock" or "t_alchemy_work_order" or "t_alchemy_facility_unlock"),"content recording includes authored infusion tables and excludes all character ownership/receipts");
         Check(ContentRecordingPolicy.IsPlayerOwnedAlchemyTable("t_alchemy_facility_unlock")&&ContentRecordingPolicy.IsPlayerOwnedAlchemyTable("t_alchemy_work_order")&&!ContentRecordingPolicy.IsPlayerOwnedAlchemyTable(InfusionSchema.ConstructionCosts),"recording has an explicit protected player-table boundary separate from its authored allowlist");
-        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==130,"recording policy exactly matches all 130 authored seed tables");
+        ContentRecordingPolicy.ValidateCheckout(game);Check(ContentRecordingPolicy.AllowlistedTables.Count==132,"recording policy exactly matches all 132 authored seed tables");
         var copied=CraftingCatalog.Copy(c);Check(copied.Fingerprint()==initial&&!JsonSerializer.Serialize(copied).Contains("MagicIds"),"all authored infusion rows round-trip exactly without read-only metadata or progression");
         CraftingCatalog Draft() {var draft=CraftingCatalog.Copy(c);draft.Items=c.Items;draft.Professions.Infusions=c.Professions.Infusions;return draft;}
         var buildCosts=c.Professions.Rows(InfusionSchema.ConstructionCosts);
@@ -161,10 +162,10 @@ static partial class Program
         editor.Show(); Set(editor, "busy", false);
         foreach (string method in new[] { "FilterRecipes", "RefreshRanks", "RefreshTeachingItems", "RefreshGathering", "RefreshProfessionPages", "RefreshHome" }) Call(editor, method);
         var tabs = Field<TabControl>(editor, "tabs"); var nav = Field<TreeView>(editor, "navigation");
-        Check(tabs.TabPages.Cast<TabPage>().Count(p => p.Name.StartsWith("Profession")) == 6, "all four gathering pages, Infusions and Transmutation exist");
+        Check(tabs.TabPages.Cast<TabPage>().Count(p => p.Name.StartsWith("Profession")) == 7, "all four gathering pages, Infusions, Transmutation and Accessory Display exist");
         void Navigate(int profession, string table)
         {
-            nav.SelectedNode = nav.Nodes.Find(profession switch { 1 => "Mining", 2 => "Herbalism", 3 => "Fishing", 5 => "Infusions", 6 => "Transmutation", _ => "Wave Absorption" }, true).Single();
+            nav.SelectedNode = nav.Nodes.Find(profession switch { 1 => "Mining", 2 => "Herbalism", 3 => "Fishing", 5 => "Infusions", 6 => "Transmutation", 7 => "Accessory Display", _ => "Wave Absorption" }, true).Single();
             Call(editor, "NavigateProfessionPage", profession, table); Application.DoEvents();
         }
         Control Detail(int profession, string table) => editor.Controls.Find($"ProfessionDetail_{profession}_{table}", true).Single();
@@ -331,6 +332,7 @@ static partial class Program
         newPotion.Value=2845;Check(newEffect.Int("a_skill_index")==504&&newEffect.Int("a_skill_level")==1,"changing the actual original-potion control derives its exact skill and level");
         c.Professions.Rows(InfusionSchema.Effects).Remove(newEffect);Call(editor,"RefreshProfessionPages");Check(c.Fingerprint()==initial,"discarding a new effect restores all existing content exactly");
         CheckTransmutationControls(editor,c,Navigate,Detail,Capture);
+        CheckAccessoryDisplayControls(editor,c,Navigate,Detail,Capture);
         Set(editor, "dirty", false); editor.Close();
         File.WriteAllText(Path.Combine(output, "result.json"), JsonSerializer.Serialize(new { passed = true, checks, liveDatabaseChanged = false, gameClientLaunched = false }));
         Console.WriteLine(checks + " profession UI checks passed"); return 0;

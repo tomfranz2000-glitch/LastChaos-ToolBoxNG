@@ -215,7 +215,7 @@ public sealed partial class CraftingMasteryEditor
     }
     private IEnumerable<(int Profession,string Table,string Name)> RankFacilities(int rank)
     {
-        foreach(var definition in new[]{(5,InfusionSchema.Facility),(6,TransmutationSchema.Facility)})
+        foreach(var definition in new[]{(5,InfusionSchema.Facility),(6,TransmutationSchema.Facility),(7,AccessoryDisplaySchema.Facility)})
             foreach(var facility in catalog.Professions.Rows(definition.Item2).Where(row=>row.Int("a_required_artisan_rank")==rank))
                 yield return (definition.Item1,definition.Item2,facility.Get("a_name"));
     }

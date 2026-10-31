@@ -4,7 +4,7 @@ namespace LastChaos_ToolBoxNG;
 
 public partial class CraftingMasteryEditor
 {
-    private static bool IsAlchemyCostTable(string table) => table is InfusionSchema.Ingredients or InfusionSchema.ConstructionCosts or TransmutationSchema.ConstructionCosts;
+    private static bool IsAlchemyCostTable(string table) => table is InfusionSchema.Ingredients or InfusionSchema.ConstructionCosts or TransmutationSchema.ConstructionCosts or AccessoryDisplaySchema.ConstructionCosts;
 
     private void NavigatePermanentPotion(int item)
     {

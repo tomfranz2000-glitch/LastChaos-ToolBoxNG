@@ -10,16 +10,16 @@ dotnet run --project tests/ProfessionsVerification/ProfessionsVerification.cspro
 docker compose -f tests/ProfessionsVerification/compose.yml down
 ```
 
-The setup applies actual profession DDL through 0044, projecting content sections
+The setup applies actual profession DDL through 0046, projecting content sections
 of coordinated historical migrations when unrelated baseline schemas are not
-needed. It loads all 30 authored seed tables and synthesizes item/NPC/zone metadata
+needed. It loads all 37 authored seed tables and synthesizes item/NPC/zone metadata
 for their references. It adds inventory, XP, tier and Artisan Rank sentinels.
 No schema or player data is modified outside this temporary container.
 
 Checks cover:
 
-- Exact schema-to-editor metadata coverage for all 18 added tables.
-- Full 30-table load/save, source+mastery creation and retirement, stable IDs and
+- Exact schema-to-editor metadata coverage for all 25 profession tables.
+- Full 37-table load/save, source+mastery creation and retirement, stable IDs and
   profession ownership, disabled source availability and Wave display-only outputs.
 - Per-profession skill/timing/tool/loot limits, source references, tier definitions,
   geometry imports, polygon topology/centimetre quantization and world-validation notes.
@@ -38,7 +38,7 @@ The polygon validator separately mirrors the game's existing text-to-centimetre
 coordinate interpretation. Offline shape validity does not prove a body contains
 water or that herb positions are walkable; the deployed world still needs checking.
 
-The existing `tests/CraftingVerification` suite shares the actual 30-table setup at
+The existing `tests/CraftingVerification` suite shares the actual 37-table setup at
 its own fixed 33317 endpoint. It verifies legacy recipe/teaching/Artisan/tier behavior,
 canonical export/import and an offscreen editor Save against fixture data. The
 `tests/ProfessionEditorVerification` and `tests/ProfessionHelpersVerification`
@@ -62,3 +62,11 @@ export locks and a late SQL constraint failure after earlier settings/offer edit
 No character data may change through successful or failed content saves.
 
 The coordinated Transmutation run passes 111 database checks across 35 authored profession tables.
+
+Accessory Display extends the fixture through actual migration 0046 and all 37
+authored profession tables. Exact accessory metadata, serial, enhancement,
+options, sockets, durability, ownership and operation-receipt sentinels must stay
+unchanged through normal saves, free-construction edits and late SQL rollback.
+The Item Editor's construction references, export locks, concurrent edits and
+Rank IV threshold are covered. The coordinated run passes 125 checks, using only
+the disposable endpoint described above.
