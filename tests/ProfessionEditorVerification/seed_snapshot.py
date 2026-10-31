@@ -25,7 +25,7 @@ def decode(value):
 
 tables = {}
 for path in seed.glob('*.sql'):
-    if path.stem.startswith(('t_crafting_', 't_gathering_', 't_herb_', 't_fishing_', 't_alchemy_', 't_transmutation_')):
+    if path.stem.startswith(('t_crafting_', 't_gathering_', 't_herb_', 't_fishing_', 't_alchemy_', 't_transmutation_', 't_accessory_display_')):
         tables[path.stem] = [{key: decode(value) for key, value in row.items()} for row in sql_rows(path)]
 refs = set()
 for rows in tables.values():

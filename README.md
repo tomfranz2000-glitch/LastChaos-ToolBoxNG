@@ -108,3 +108,24 @@ settings, facility, facility ingredients, offers and item exceptions. Character
 wallets, buildings, paid work orders, delivery records and receipts are explicitly
 excluded, including future unreviewed Transmutation tables. Exporting records content
 in the selected local Git checkout; it does not publish or push it.
+
+## Accessory Display
+
+Open **Professions Editor → Accessory Display** after applying game migration
+**0046**. **Display** edits the named Artisan Rank construction requirement,
+separate construction/deposit switches, names, built/plot models, location,
+heading and interaction distance. Positions and distances display in metres.
+The initial requirement is permanent Rank ID 4; change its mastery-point
+threshold on **Artisan Ranks**. The rank's reward page links back to the display.
+
+**Construction costs** accepts up to eight different ordinary materials. The
+initial cost is one Flawed Stone and one Herb Trunk. Removing every cost permits
+free construction. Rank and material requirements apply once; changing them
+does not remove existing buildings. Disabling deposits still permits retrieval.
+
+One deposited accessory grants its equipment bonuses everywhere until retrieved,
+subject to normal equipment requirements. Ownership, the exact stored item and
+operation receipts are player data. The editor never changes or exports them.
+**Record Content Changes** includes only the two authored display configuration
+tables. Reopen the display after saving rules; re-enter the hall after placement
+or model changes. New artwork also needs client deployment.

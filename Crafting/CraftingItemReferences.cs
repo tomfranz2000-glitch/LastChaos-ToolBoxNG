@@ -22,6 +22,7 @@ public static class CraftingItemReferences
         ("t_alchemy_ingredient", "a_item_index", "Brewing ingredient"),
         ("t_alchemy_facility_ingredient", "a_item_index", "Station construction material"),
         ("t_alchemy_consumable", "a_item_index", "Permanent potion effect"),
+        ("t_accessory_display_facility_ingredient", "a_item_index", "Accessory Display construction material"),
         ("t_transmutation_offer", "a_output_item_index", "Transmutation output"),
         ("t_transmutation_facility_ingredient", "a_item_index", "Crucible construction material"),
         ("t_transmutation_item_rule", "a_item_index", "Transmutation equipment exception")];
@@ -54,7 +55,7 @@ public static class CraftingItemReferences
                     "t_fishing_loot"=>"CONCAT(a_water_index,' / ',a_slot)",
                     "t_gathering_tool" or "t_alchemy_consumable" or "t_transmutation_item_rule"=>"CAST(a_item_index AS CHAR)",
                     "t_alchemy_ingredient"=>"CONCAT(a_offer_index,' / ',a_slot)",
-                    "t_alchemy_facility_ingredient" or "t_transmutation_facility_ingredient"=>"CONCAT(a_facility_index,' / ',a_slot)",
+                    "t_alchemy_facility_ingredient" or "t_transmutation_facility_ingredient" or "t_accessory_display_facility_ingredient"=>"CONCAT(a_facility_index,' / ',a_slot)",
                     _=>"CAST(a_index AS CHAR)"
                 };
                 using var source=new MySqlCommand($"SELECT {key} FROM {use.Table} WHERE {use.Field}=@item ORDER BY 1",db);

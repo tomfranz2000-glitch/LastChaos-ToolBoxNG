@@ -16,6 +16,7 @@ public static class ContentRecordingPolicy
     public static bool IsPlayerOwnedAlchemyTable(string table) => table is
         "t_alchemy_infusion_unlock" or "t_alchemy_work_order" or "t_alchemy_facility_unlock";
     public static bool IsPlayerOwnedProfessionTable(string table) => IsPlayerOwnedAlchemyTable(table)
+        || table=="t_accessory_display" || table.StartsWith("t_accessory_display_",StringComparison.Ordinal) && table is not ("t_accessory_display_facility" or "t_accessory_display_facility_ingredient")
         || table.StartsWith("t_transmutation_",StringComparison.Ordinal) && table is not ("t_transmutation_settings" or "t_transmutation_facility" or "t_transmutation_facility_ingredient" or "t_transmutation_offer" or "t_transmutation_item_rule");
     // Existing optional Toolbox variants can write these schema-only/custom
     // sources. They need explicit classification, seeds and a policy update
@@ -140,6 +141,8 @@ t_string
 t_title
 t_toolversion
 t_trigger_set
+t_accessory_display_facility
+t_accessory_display_facility_ingredient
 t_transmutation_settings
 t_transmutation_facility
 t_transmutation_facility_ingredient

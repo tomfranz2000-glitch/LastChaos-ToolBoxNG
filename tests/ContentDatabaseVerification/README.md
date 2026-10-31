@@ -11,7 +11,7 @@ docker compose -f tests/ContentDatabaseVerification/identity-mismatch.yml up -d 
 
 The primary fixture listens only on 127.0.0.1:33319. The identity-mismatch
 container exposes no port. Both use temporary in-memory database storage and the
-test-only password from their Compose files. The program recreates the 125
+test-only password from their Compose files. The program recreates the 132
 approved content tables with synthetic data. Tests cover snapshot coherence,
 legacy engines, player-data exclusion, blob/Unicode preservation, canonical
 mixed-field normalization, repeatability, empty content, cancellation, and
@@ -19,7 +19,7 @@ cleanup. It prints a prepared synthetic game checkout for integrated Git tests.
 
 After the full suite has prepared the fixture, optional `--targeted` verifies
 reader-pool cleanup and all six explicit unseeded-editor guards without resetting
-the main tables. `--compare-host` takes a read-only snapshot and compares all 125
+the main tables. `--compare-host` takes a read-only snapshot and compares all 132
 batch-exported files with the original host Docker-per-query transport using a
 frozen copy of the same canonical script (about three minutes).
 
@@ -42,3 +42,7 @@ delivery sentinels in ep4_db cannot be read by the restricted snapshot account o
 appear in any exported seed.
 
 The Transmutation recording/export run passes 37 checks across 130 authored tables.
+
+Accessory Display adds two authored configuration tables, bringing the reviewed
+set to 132. Character construction, exact stored equipment and display receipts
+remain protected player tables, including future unreviewed display tables.
