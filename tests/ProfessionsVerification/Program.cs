@@ -3,7 +3,7 @@ using LastChaos_ToolBoxNG.Professions;
 using MySqlConnector;
 using System.Text.Json;
 
-internal static class Program
+internal static partial class Program
 {
     const string Endpoint="Server=127.0.0.1;Port=33318;User ID=root;Password=professions-fixture-only;Connection Timeout=4;Default Command Timeout=20;";
     const string Connection=Endpoint+"Database=ep4_data;Character Set=utf8mb4;Allow User Variables=true;";
@@ -13,7 +13,7 @@ internal static class Program
     static void Exec(string sql){using var cmd=new MySqlCommand(sql,db);cmd.ExecuteNonQuery();}
     static string Scalar(string sql){using var cmd=new MySqlCommand(sql,db);return Convert.ToString(cmd.ExecuteScalar())??"";}
     static void Reject(Action action,string contains){try{action();}catch(Exception e){Check(e.ToString().Contains(contains,StringComparison.OrdinalIgnoreCase),"Rejection: "+contains+" ["+e.Message+"]");return;}throw new Exception("Expected rejection: "+contains);}
-    static string Players()=>Scalar("SELECT CONCAT((SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_idx,a_slot,a_item_idx,a_count) ORDER BY a_slot) FROM ep4_db.t_inven01),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_recipe_index,a_exp,a_rank) ORDER BY a_recipe_index) FROM ep4_db.t_crafting_mastery),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_item_index,a_exp,a_rank) ORDER BY a_item_index) FROM ep4_db.t_gathering_mastery),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_rank_index)) FROM ep4_db.t_crafting_master_rank),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_effect_index,HEX(a_operation_token),a_acquired_at)) FROM ep4_db.t_alchemy_infusion_unlock),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_index,a_char_index,a_output_item_index,a_output_count,a_costs,a_started_at,a_ready_at,HEX(a_start_token),a_claimed_at)) FROM ep4_db.t_alchemy_work_order),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_facility_index,a_base_index,HEX(a_operation_token),a_costs,a_built_at)) FROM ep4_db.t_alchemy_facility_unlock))");
+    static string Players()=>Scalar("SELECT CONCAT((SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_idx,a_slot,a_item_idx,a_count) ORDER BY a_slot) FROM ep4_db.t_inven01),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_recipe_index,a_exp,a_rank) ORDER BY a_recipe_index) FROM ep4_db.t_crafting_mastery),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_item_index,a_exp,a_rank) ORDER BY a_item_index) FROM ep4_db.t_gathering_mastery),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_rank_index)) FROM ep4_db.t_crafting_master_rank),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_effect_index,HEX(a_operation_token),a_acquired_at)) FROM ep4_db.t_alchemy_infusion_unlock),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_index,a_char_index,a_output_item_index,a_output_count,a_costs,a_started_at,a_ready_at,HEX(a_start_token),a_claimed_at)) FROM ep4_db.t_alchemy_work_order),'|',(SELECT GROUP_CONCAT(CONCAT_WS(':',a_char_index,a_facility_index,a_base_index,HEX(a_operation_token),a_costs,a_built_at)) FROM ep4_db.t_alchemy_facility_unlock))")+"|"+TransmutationPlayers();
     static ProfessionRow Row(CraftingCatalog c,string table,int id)=>c.Professions.Rows(table).Single(r=>r.Int("a_index")==id);
     static void Invalid(CraftingCatalog c,string needle)=>Check(CraftingRules.Validate(c).Any(i=>i.Error&&i.Message.Contains(needle,StringComparison.OrdinalIgnoreCase)),"Reject invalid "+needle);
     [STAThread]static int Main(string[] args)
@@ -24,7 +24,7 @@ internal static class Program
             using(var admin=new MySqlConnection(Endpoint)){admin.Open();using var cmd=new MySqlCommand("DROP DATABASE IF EXISTS ep4_data;DROP DATABASE IF EXISTS ep4_db;CREATE DATABASE ep4_data CHARACTER SET utf8mb4;CREATE DATABASE ep4_db CHARACTER SET utf8mb4;",admin);cmd.ExecuteNonQuery();}
             using var database=new MySqlConnection(Connection);db=database;db.Open();FixtureContent.Setup(Path.GetFullPath(args[0]),db);
             var catalog=Repository.Load();string players=Players();
-            Check(CraftingRepository.Tables.Length==30&&catalog.Professions.Tables.Count==18,"All30 content tables load atomically");
+            Check(CraftingRepository.Tables.Length==35&&catalog.Professions.Tables.Count==23,"All35 content tables load atomically");
             Check(catalog.Ranks.Single(r=>r.Id==1).Perks.Any(p=>p.Type==ArtisanPerks.UpgradeBreakProtection&&p.Enabled),"seeded Rank I protection loads as a real perk separate from stat bonuses");
             Check(!catalog.Ranks.Single(r=>r.Id==1).Bonuses.Any(b=>b.Effect==4&&b.Amount==100),"default Rank I HP placeholder is replaced without fabricating a stat option");
             var perkEdit=CraftingCatalog.Copy(catalog);perkEdit.Ranks.Single(r=>r.Id==1).Perks[0].Enabled=false;
@@ -56,7 +56,7 @@ internal static class Program
             Repository.Save(unrestrictedSaved,catalog);catalog=Repository.Load();
             var missingRank=CraftingCatalog.Copy(catalog);Row(missingRank,InfusionSchema.Facility,1).Set("a_required_artisan_rank",900001);
             Reject(()=>Repository.Save(catalog,missingRank),"Artisan Rank");
-            var issues=CraftingRules.Validate(catalog);Check(!issues.Any(i=>i.Error),"Canonical30-table content satisfies actual catalogue contracts: "+string.Join(";",issues.Where(i=>i.Error)));
+            var issues=CraftingRules.Validate(catalog);Check(!issues.Any(i=>i.Error),"Canonical35-table content satisfies actual catalogue contracts: "+string.Join(";",issues.Where(i=>i.Error)));
             Check(catalog.Professions.Npcs.Count>0&&catalog.Professions.Zones.Count>0,"Loaded NPC flags and zone metadata");
             var availability=CraftingCatalog.Copy(catalog);var wave=Row(availability,"t_gathering_node",2);wave.Set("a_item_index",777099);
             Check(!availability.IsGatheringAvailable(777099),"Wave base/display item does not falsely create attainable mastery points");
@@ -133,6 +133,7 @@ internal static class Program
             Reject(()=>Repository.Save(saved,edit),"lifecycle");Exec("UPDATE t_skill SET a_flag=a_flag&~256 WHERE a_index=505");Check(Repository.Load().Fingerprint()==saved.Fingerprint(),"save rechecks current read-only potion skill metadata before writing");
             Check(Players()==players,"All valid and invalid authoring leaves player state and acquired infusion tokens byte-equivalent");
             Repository.WithLockedCatalog((snapshot,identity)=> {using var other=new MySqlConnection(Connection);other.Open();using var timeout=new MySqlCommand("SET innodb_lock_wait_timeout=1",other);timeout.ExecuteNonQuery();Reject(()=>{using var change=new MySqlCommand("UPDATE t_fishing_water SET a_cast_ms=a_cast_ms+1 WHERE a_index=1",other);change.ExecuteNonQuery();},"Lock wait timeout");});
+            CheckTransmutationDatabase();
             File.WriteAllText(Path.Combine(output,"result.json"),JsonSerializer.Serialize(new{passed=true,checks,tables=CraftingRepository.Tables.Length,live_database_changed=false}));Console.WriteLine($"{checks} profession backend checks passed");return 0;
         } catch(Exception e){Console.Error.WriteLine(e);File.WriteAllText(Path.Combine(output,"result.json"),JsonSerializer.Serialize(new{passed=false,checks,error=e.ToString(),live_database_changed=false}));return 1;}
     }

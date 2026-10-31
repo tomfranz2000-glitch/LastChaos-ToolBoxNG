@@ -6,4 +6,5 @@
 <Compile Include="../../Crafting/MasteryBonusUnits.cs" Link="Product/MasteryBonusUnits.cs"/>
 <Compile Include="../../Professions/InfusionSchema.cs" Link="Product/InfusionSchema.cs"/><Compile Include="../../Professions/InfusionRules.cs" Link="Product/InfusionRules.cs"/>
 <Compile Include="../../Professions/ProfessionContent.cs" Link="Product/ProfessionContent.cs"/><Compile Include="../../Professions/ProfessionSchema.cs" Link="Product/ProfessionSchema.cs"/><Compile Include="../../Professions/ProfessionRules.cs" Link="Product/ProfessionRules.cs"/><Compile Include="../../Professions/ProfessionStorage.cs" Link="Product/ProfessionStorage.cs"/><Compile Include="../../Professions/ProfessionPreviews.cs" Link="Product/ProfessionPreviews.cs"/>
+<Compile Include="../../Professions/TransmutationSchema.cs" Link="Product/TransmutationSchema.cs"/><Compile Include="../../Professions/TransmutationRules.cs" Link="Product/TransmutationRules.cs"/>
 </ItemGroup></Project>

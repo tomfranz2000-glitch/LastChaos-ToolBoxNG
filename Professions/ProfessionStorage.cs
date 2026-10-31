@@ -15,7 +15,7 @@ public static class ProfessionStorage
                 using var reader=command.ExecuteReader();
             }
         } catch(MySqlException e) when(e.Number is 1054 or 1146) {
-            throw new InvalidOperationException("Profession content schema is incomplete. Apply the game's migrations through 0043; this editor never creates or changes database schema.",e);
+            throw new InvalidOperationException("Profession content schema is incomplete. Apply the game's migrations through 0045; this editor never creates or changes database schema.",e);
         }
     }
     public static ProfessionContent Read(MySqlConnection db,MySqlTransaction tx,bool locked,string locale="usa")
@@ -50,7 +50,7 @@ public static class ProfessionStorage
     public static void Save(MySqlConnection db,MySqlTransaction tx,ProfessionContent original,ProfessionContent edited)
     {
         if(original.Canonical()==edited.Canonical())return;
-        string[] children=["t_gathering_node_loot","t_herb_spawn_point","t_herb_loot","t_fishing_water_vertex","t_fishing_loot",InfusionSchema.Ingredients,InfusionSchema.ConstructionCosts];
+        string[] children=["t_gathering_node_loot","t_herb_spawn_point","t_herb_loot","t_fishing_water_vertex","t_fishing_loot",InfusionSchema.Ingredients,InfusionSchema.ConstructionCosts,TransmutationSchema.ConstructionCosts,TransmutationSchema.Offers,TransmutationSchema.ItemRules];
         foreach(var table in children)Execute(db,tx,"DELETE FROM `"+table+"`");
         // Temporary unreferenced NPC numbers permit unique-binding swaps inside
         // this transaction. They are never published to the game or seed export.
@@ -72,7 +72,7 @@ public static class ProfessionStorage
     }
     public static void ValidatePublished(ProfessionContent original,ProfessionContent edited)
     {
-        foreach(var name in new[]{"t_gathering_settings","t_gathering_profile","t_gathering_node","t_gathering_tool","t_herb_population","t_fishing_settings","t_fishing_water",InfusionSchema.Effects,InfusionSchema.Offers,InfusionSchema.Facility,InfusionSchema.Consumables}) {
+        foreach(var name in new[]{"t_gathering_settings","t_gathering_profile","t_gathering_node","t_gathering_tool","t_herb_population","t_fishing_settings","t_fishing_water",InfusionSchema.Effects,InfusionSchema.Offers,InfusionSchema.Facility,InfusionSchema.Consumables,TransmutationSchema.Settings,TransmutationSchema.Facility}) {
             var table=ProfessionSchema.Find(name);var keys=edited.Rows(name).Select(r=>r.Key(table)).ToHashSet(StringComparer.Ordinal);
             if(original.Rows(name).Any(r=>!keys.Contains(r.Key(table))))throw new InvalidOperationException("Published "+table.Title+" IDs cannot be removed or renumbered. Disable source/tool definitions instead; retain imported profiles.");
         }
